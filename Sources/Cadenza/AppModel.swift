@@ -248,6 +248,16 @@ final class AppModel {
         }
     }
 
+    /// Whether the screen being fetched is still the one being looked at.
+    ///
+    /// Every fetch below crosses an `await`, and the user can move in that
+    /// gap. Without this check the *slowest* request wins rather than the
+    /// newest: clicking Músicas locais — which needs no network and appears
+    /// instantly — while the favourites request was still in flight put the
+    /// favourites back on screen a second later, under a sidebar that said
+    /// Músicas locais. It looked like the click had been ignored.
+    private func stillWanted(_ path: String) -> Bool { current?.path == path }
+
     func reload() async {
         guard let path = current?.path else { return }
         error = nil
@@ -262,31 +272,37 @@ final class AppModel {
             isLoading = false
             return
         }
-        if let cached = await ClassicalAPI.shared.cachedScreen(at: path) {
+
+        let cached = await ClassicalAPI.shared.cachedScreen(at: path)
+        guard stillWanted(path) else { return }
+        if let cached {
             screen = cached
             isLoading = false
         } else {
             screen = nil
             isLoading = true
         }
-        defer { isLoading = false }
+        defer { if stillWanted(path) { isLoading = false } }
 
         do {
-            if path == LocalRoute.path {
-                screen = LocalLibrary.shared.screen()
-            } else if path == LibraryRoute.favouriteSongs {
-                screen = try await LibraryAPI.shared.favouriteSongsScreen()
+            let fetched: Screen
+            if path == LibraryRoute.favouriteSongs {
+                fetched = try await LibraryAPI.shared.favouriteSongsScreen()
             } else if path == LibraryRoute.playlists {
-                screen = try await LibraryAPI.shared.playlistsScreen()
+                fetched = try await LibraryAPI.shared.playlistsScreen()
             } else if path.hasPrefix(LibraryRoute.playlistPrefix) {
                 let id = String(path.dropFirst(LibraryRoute.playlistPrefix.count))
-                screen = try await LibraryAPI.shared.playlistScreen(
+                fetched = try await LibraryAPI.shared.playlistScreen(
                     id: id, name: current?.name ?? "Playlist")
             } else {
-                screen = try await ClassicalAPI.shared.screen(at: path)
+                fetched = try await ClassicalAPI.shared.screen(at: path)
             }
+            guard stillWanted(path) else { return }
+            screen = fetched
         } catch {
-            // A failed refresh must not wipe a screen that is already readable.
+            // A failed refresh must not wipe a screen that is already readable,
+            // and must not report on a screen the user has already left.
+            guard stillWanted(path) else { return }
             if screen == nil { self.error = error.localizedDescription }
         }
 

@@ -111,8 +111,61 @@ enum SelfTest {
         }
 
         say("")
+        say("=== navegação ===")
+        for line in await navigationCheck() { say(line) }
+
+        say("")
         say("=== fim ===")
         try? out.write(toFile: NSTemporaryDirectory() + "cadenza-selftest.txt",
                        atomically: true, encoding: .utf8)
+    }
+
+    /// Walks the sidebar the way a click does.
+    ///
+    /// Selecting a row and having the page not change is invisible to every
+    /// other test here: the model is fine in isolation and the screen is fine
+    /// in isolation, and only the sequence shows the fault.
+    @MainActor
+    private static func navigationCheck() async -> [String] {
+        var lines: [String] = []
+        let model = AppModel()
+        await model.start()
+        lines.append("destinos na biblioteca: "
+            + model.library.map(\.name).joined(separator: ", "))
+
+        guard let local = model.library.first(where: { $0.path == LocalRoute.path }),
+              let favourites = model.library.first(
+                where: { $0.path == LibraryRoute.favouriteSongs }) else {
+            lines.append("FALHA: destinos esperados não existem")
+            return lines
+        }
+
+        await model.select(favourites)
+        lines.append("favoritas → tela: \(model.screen?.screenType ?? "nil") "
+            + "“\(model.screen?.title ?? "nil")”")
+
+        await model.select(local)
+        lines.append("locais    → tela: \(model.screen?.screenType ?? "nil") "
+            + "“\(model.screen?.title ?? "nil")”")
+
+        if model.screen?.screenType != LocalRoute.screenType {
+            lines.append("FALHA: selecionar Músicas locais não trocou a tela")
+        }
+
+        // The race that produced the report: a screen that needs the network
+        // is asked for, and before it lands the user picks one that needs
+        // none. The slow answer must not overwrite the fast one.
+        await model.select(local)
+        Task { await model.select(favourites) }
+        try? await Task.sleep(for: .milliseconds(20))
+        await model.select(local)
+        try? await Task.sleep(for: .seconds(5))
+        lines.append("depois da corrida → tela: \(model.screen?.screenType ?? "nil") "
+            + "“\(model.screen?.title ?? "nil")”, "
+            + "barra lateral em “\(model.current?.name ?? "nil")”")
+        if model.screen?.screenType != LocalRoute.screenType {
+            lines.append("FALHA: a requisição lenta sobrescreveu a tela atual")
+        }
+        return lines
     }
 }
