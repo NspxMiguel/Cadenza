@@ -14,13 +14,30 @@ struct RootView: View {
     @State private var showingLogin = false
     @State private var expanded = false
 
+    /// Filtering and ordering belong to the screen being looked at, not to the
+    /// app: carrying a filter from one album into the next would hide most of
+    /// the next one for no reason the user could see. All three reset on
+    /// navigation. They live here rather than in ScreenView because a toolbar
+    /// declared inside the detail column never reached the window.
+    @State private var filter = ""
+    @State private var order: TrackOrder = .original
+    @State private var onlyFavourites = false
+
+    /// True where these controls mean something — a list of tracks. A wall of
+    /// shelves has nothing to sort.
+    private var isTrackList: Bool {
+        guard let page = model.screen?.firstPage else { return false }
+        return !page.isEmptyState && page.items.contains(where: \.isTrack)
+    }
+
     var body: some View {
         NavigationSplitView {
             Sidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
         } detail: {
             VStack(spacing: 0) {
-                ScreenView(model: model)
+                ScreenView(model: model, filter: filter, order: order,
+                           onlyFavourites: onlyFavourites)
                 StatusStrip()
             }
             // The player floats over the list rather than displacing it, which
@@ -68,6 +85,10 @@ struct RootView: View {
             // Nothing about playback lives up here. Music keeps the title bar
             // for what the screen is, and the player floats over the content.
             ToolbarItem(placement: .primaryAction) {
+                if isTrackList { listControls }
+            }
+
+            ToolbarItem(placement: .primaryAction) {
                 if model.current?.path == LocalRoute.path {
                     Button {
                         LocalLibrary.shared.promptForFiles()
@@ -81,6 +102,11 @@ struct RootView: View {
         // The page names itself in its own header. Repeating it in the title
         // bar only crowded the player, and Music does not do it either.
         .navigationTitle("")
+        .onChange(of: model.current?.path) { _, _ in
+            filter = ""
+            order = .original
+            onlyFavourites = false
+        }
         .task {
             if model.needsLogin {
                 showingLogin = true
@@ -95,6 +121,52 @@ struct RootView: View {
                 Task { await Playback.shared.start() }
                 Task { await model.start() }
             }
+        }
+    }
+
+    /// The sort menu and the in-screen search field, the way Music puts them:
+    /// top right, above the list they act on.
+    private var listControls: some View {
+        HStack(spacing: 10) {
+            Menu {
+                Picker("Ordenar por", selection: $order) {
+                    ForEach(TrackOrder.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+
+                Divider()
+
+                Toggle("Só favoritas", isOn: $onlyFavourites)
+            } label: {
+                Image(systemName: order == .original && !onlyFavourites
+                      ? "line.3.horizontal.decrease"
+                      : "line.3.horizontal.decrease.circle.fill")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
+            .help("Ordenar e filtrar")
+
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                // A plain field rather than a second `.searchable`: the sidebar
+                // already owns that modifier for catalog search, and two of them
+                // in one window fight over the same keyboard shortcut.
+                TextField("Buscar nesta lista", text: $filter)
+                    .textFieldStyle(.plain)
+                    .frame(width: 140)
+                if !filter.isEmpty {
+                    Button { filter = "" } label: {
+                        Image(systemName: "xmark.circle.fill").font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.quaternary.opacity(0.5), in: Capsule())
         }
     }
 }
@@ -250,6 +322,13 @@ struct ScreenView: View {
     let model: AppModel
     @State private var droppingHere = false
 
+    /// Owned by RootView, because a toolbar declared this deep inside the
+    /// detail column is silently dropped — the sort menu and the search field
+    /// simply never appeared.
+    var filter: String = ""
+    var order: TrackOrder = .original
+    var onlyFavourites = false
+
     var body: some View {
         Group {
             if let error = model.error {
@@ -263,7 +342,10 @@ struct ScreenView: View {
                             ScreenHeader(header: header, context: model.playableContext, model: model)
                         }
                         TrackListView(page: page, extra: model.extraItems,
-                                      loadingMore: model.isLoadingMore, model: model)
+                                      loadingMore: model.isLoadingMore, model: model,
+                                      fallbackArtwork: screen.header?.image,
+                                      filter: filter, order: order,
+                                      onlyFavourites: onlyFavourites)
                     }
                 } else if screen.screenType == LocalRoute.screenType,
                           let page = screen.firstPage, page.isEmptyState {
@@ -544,17 +626,98 @@ struct ItemCard: View {
 /// List screens carry only row titles up front; the metadata that makes a
 /// classical listing useful — movement, performers, duration — comes from a
 /// second request, so rows stay deliberately plain until that lands.
+/// How a list can be reordered.
+///
+/// `original` is not one option among five — it is the only correct one for a
+/// work in movements, and the default everywhere for that reason. A symphony
+/// sorted alphabetically is not a symphony.
+enum TrackOrder: String, CaseIterable, Identifiable {
+    case original, title, artist, duration
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .original: "Ordem do álbum"
+        case .title: "Título"
+        case .artist: "Intérprete"
+        case .duration: "Duração"
+        }
+    }
+}
+
 struct TrackListView: View {
     let page: Page
     var extra: [Item] = []
     var loadingMore = false
     let model: AppModel
+    /// The cover of the album or playlist being shown. Individual classical
+    /// tracks carry no artwork of their own — the catalog simply does not send
+    /// it — so without this every row would show the same grey placeholder.
+    var fallbackArtwork: Artwork? = nil
+    var filter: String = ""
+    var order: TrackOrder = .original
+    var onlyFavourites = false
+
+    private var allItems: [Item] { page.items + extra }
+
+    /// The rows to draw, after filtering and sorting.
+    ///
+    /// Headings are dropped when nothing under them survives: a work title
+    /// standing alone over no movements is a lie about what is in the list.
+    /// Sorting drops them entirely, because once the movements are out of order
+    /// the grouping they announce no longer holds.
+    private var visible: [Item] {
+        var items = allItems
+
+        if onlyFavourites {
+            items = items.filter { $0.isTrack && Favourites.shared.isFavourite($0) }
+        }
+
+        let needle = Self.fold(filter)
+        if !needle.isEmpty {
+            items = items.filter { item in
+                guard item.isTrack else { return true }
+                return Self.fold([item.title, item.subtitle, item.addition]
+                    .compactMap { $0 }.joined(separator: " ")).contains(needle)
+            }
+        }
+
+        switch order {
+        case .original: break
+        case .title:
+            items = items.filter(\.isTrack).sorted {
+                ($0.title ?? "").localizedStandardCompare($1.title ?? "") == .orderedAscending
+            }
+        case .artist:
+            items = items.filter(\.isTrack).sorted {
+                ($0.subtitle ?? "").localizedStandardCompare($1.subtitle ?? "") == .orderedAscending
+            }
+        case .duration:
+            items = items.filter(\.isTrack).sorted { ($0.durationMs ?? 0) < ($1.durationMs ?? 0) }
+        }
+
+        return Self.withoutOrphanHeadings(items)
+    }
+
+    /// Removes headings that no longer have a track beneath them.
+    private static func withoutOrphanHeadings(_ items: [Item]) -> [Item] {
+        items.enumerated().filter { index, item in
+            guard item.isHeading else { return true }
+            let next = items.dropFirst(index + 1).first
+            return next?.isTrack == true
+        }.map(\.element)
+    }
+
+    private static func fold(_ text: String) -> String {
+        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+    }
 
     /// Track numbering restarts under each work, and headings are not counted —
     /// they are work titles standing above their movements, not playable rows.
     private var numbered: [(item: Item, number: Int?)] {
         var counter = 0
-        return (page.items + extra).map { item in
+        return visible.map { item in
             guard item.isTrack else { counter = 0; return (item, nil) }
             counter += 1
             return (item, counter)
@@ -562,16 +725,27 @@ struct TrackListView: View {
     }
 
     private func play(_ item: Item) {
-        Playback.shared.play(item, within: page.items + extra)
+        // Played within what is on screen, not within the whole page: if the
+        // list is filtered or sorted, the queue should follow what the listener
+        // is actually looking at.
+        Playback.shared.play(item, within: visible.filter(\.isTrack))
     }
 
     var body: some View {
         List {
+            if !filter.isEmpty && !numbered.contains(where: { $0.item.isTrack }) {
+                Text("Nada nesta tela corresponde a “\(filter)”.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+            }
             ForEach(numbered, id: \.item.id) { entry in
                 if entry.item.isHeading {
                     WorkHeadingRow(item: entry.item, model: model)
                 } else {
-                    TrackRow(item: entry.item, number: entry.number)
+                    TrackRow(item: entry.item, number: entry.number,
+                             fallbackArtwork: fallbackArtwork,
+                             playlist: model.currentPlaylist, model: model)
                         .contentShape(Rectangle())
                         .onTapGesture { play(entry.item) }
                         .contextMenu {
@@ -710,61 +884,151 @@ struct WorkHeadingRow: View {
     }
 }
 
+/// One row of a track list, in the shape Music gives it.
+///
+/// Columns: the favourite star, then the cover, then the words, then the time
+/// and the menu. The number the row used to lead with is gone from the normal
+/// case because it was redundant — a classical track titles itself "I. Molto
+/// allegro", so the numeral is already in the words. It comes back only where
+/// there is no cover to show, which is exactly the work screens, where the
+/// movement number is the one thing orienting the reader.
 struct TrackRow: View {
     let item: Item
     let number: Int?
+    var fallbackArtwork: Artwork? = nil
+    var playlist: LibraryAPI.PlaylistSummary? = nil
+    var model: AppModel? = nil
+
     @State private var hovering = false
 
     private var isCurrent: Bool {
         item.playable?.id == Playback.shared.active.nowPlaying?.trackID
     }
 
+    private var artwork: Artwork? { item.image ?? fallbackArtwork }
+
+    private var isFavourite: Bool { Favourites.shared.isFavourite(item) }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                if hovering, item.playable != nil {
-                    Image(systemName: "play.fill").font(.caption)
-                } else if isCurrent {
-                    Image(systemName: Playback.shared.active.status == .playing
-                          ? "speaker.wave.2.fill" : "speaker.fill")
-                        .font(.caption)
-                        .foregroundStyle(.tint)
-                } else {
-                    Text(number.map(String.init) ?? "")
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .frame(width: 26, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title ?? "—").font(.body).lineLimit(1)
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-
+        HStack(spacing: 11) {
+            star
+            cover
+            words
             Spacer(minLength: 12)
 
-            if item.playable != nil, hovering || Favourites.shared.isFavourite(item) {
-                Button {
-                    Favourites.shared.toggle(item)
-                } label: {
-                    Image(systemName: Favourites.shared.isFavourite(item) ? "star.fill" : "star")
-                        .font(.caption)
-                        .foregroundStyle(Favourites.shared.isFavourite(item) ? .yellow : .secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Favoritar")
-            }
             if let duration = item.duration {
                 Text(duration)
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
+            if let model {
+                Menu {
+                    TrackMenu(item: item, playlist: playlist, model: model)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.callout)
+                        .foregroundStyle(hovering ? AnyShapeStyle(.secondary)
+                                         : AnyShapeStyle(Color.clear))
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 18)
+                .disabled(item.playable == nil)
+            }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
+        .background {
+            if hovering {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(.quaternary.opacity(0.5))
+                    .padding(.horizontal, -8)
+            }
+        }
         .onHover { hovering = $0 }
+    }
+
+    /// Always present, so the column never shifts under the pointer — dimmed
+    /// to nothing until the row is hovered or the track is actually a
+    /// favourite.
+    private var star: some View {
+        Button {
+            Favourites.shared.toggle(item)
+        } label: {
+            Image(systemName: isFavourite ? "star.fill" : "star")
+                .font(.caption)
+                .foregroundStyle(isFavourite ? AnyShapeStyle(.tint)
+                                 : (hovering ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(Color.clear)))
+        }
+        .buttonStyle(.plain)
+        .frame(width: 18)
+        .disabled(item.playable == nil)
+        .help(isFavourite ? "Desfavoritar" : "Favoritar")
+    }
+
+    private var cover: some View {
+        ZStack {
+            if let url = artwork?.url(size: 96) {
+                AsyncImage(url: url) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Rectangle().fill(.quaternary)
+                }
+            } else {
+                Rectangle().fill(.quaternary.opacity(0.4))
+                    .overlay {
+                        Text(number.map(String.init) ?? "")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+            }
+
+            if isCurrent {
+                Color.black.opacity(0.45)
+                Image(systemName: Playback.shared.active.status == .playing
+                      ? "waveform" : "speaker.fill")
+                    .font(.callout)
+                    .foregroundStyle(.white)
+                    .symbolEffect(.variableColor.iterative,
+                                  isActive: Playback.shared.active.status == .playing)
+            } else if hovering, item.playable != nil {
+                Color.black.opacity(0.45)
+                Image(systemName: "play.fill")
+                    .font(.callout)
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 38, height: 38)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(item.title ?? "—")
+                .font(.body)
+                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .lineLimit(1)
+
+            // "Álbum – Intérprete" when both are known. The catalog puts the
+            // performers in `subtitle` and the collection in `addition`, and
+            // for a track row the two together are what identifies it.
+            if let second = Self.secondLine(item) {
+                Text(second)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private static func secondLine(_ item: Item) -> String? {
+        let parts = [item.addition, item.subtitle]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " — ")
     }
 }
 
@@ -861,16 +1125,28 @@ struct ScreenHeader: View {
                 }
 
                 if let context {
-                    Button {
-                        Playback.shared.play(context: context,
-                                             title: header.title ?? "",
-                                             artwork: header.image?.url(size: 256))
-                    } label: {
-                        Label("Reproduzir", systemImage: "play.fill")
-                            .frame(minWidth: 76)
+                    HStack(spacing: 12) {
+                        bigButton("Reproduzir", icon: "play.fill") {
+                            Playback.shared.active.setShuffle(false)
+                            Playback.shared.play(context: context,
+                                                 title: header.title ?? "",
+                                                 artwork: header.image?.url(size: 256))
+                        }
+
+                        // Offered on collections, withheld on a work. Shuffling
+                        // the movements of a symphony is not a preference, it
+                        // is a way of not hearing the piece — the movements are
+                        // ordered by the composer, and the button would be an
+                        // invitation to break that.
+                        if header.composerName == nil {
+                            bigButton("Aleatório", icon: "shuffle") {
+                                Playback.shared.active.setShuffle(true)
+                                Playback.shared.play(context: context,
+                                                     title: header.title ?? "",
+                                                     artwork: header.image?.url(size: 256))
+                            }
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                     .padding(.top, 6)
                 }
 
@@ -883,6 +1159,23 @@ struct ScreenHeader: View {
         .padding(.horizontal, 24)
         .padding(.top, 20)
         .padding(.bottom, 16)
+    }
+
+    /// The wide, dark, tinted-label button Music uses for Play and Shuffle.
+    /// Not `.borderedProminent`, which fills the whole shape with the accent
+    /// colour and reads as a system alert button rather than a transport.
+    private func bigButton(_ title: String, icon: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.callout)
+                Text(title).font(.system(size: 15, weight: .medium))
+            }
+            .foregroundStyle(.tint)
+            .frame(width: 152, height: 40)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
