@@ -63,9 +63,50 @@ final class Playback {
 
     var isPreparing: Bool { active.nowPlaying == nil && pending != nil }
 
-    /// Starts a track, showing it immediately from what the catalog already
-    /// told us rather than waiting for the engine to echo it back.
-    func play(_ item: Item) {
+    /// Starts a track within its surroundings, so the queue holds the rest of
+    /// the album or playlist and skipping forward has somewhere to go.
+    func play(_ item: Item, within siblings: [Item]) {
+        let ids = siblings.compactMap { $0.playable?.id }
+        guard let id = item.playable?.id, let index = ids.firstIndex(of: id), ids.count > 1
+        else {
+            play(item)
+            return
+        }
+        showPending(item)
+        Task {
+            if let engine = active as? WebKitEngine {
+                try? await engine.play(ids: ids, startingAt: index)
+            } else {
+                try? await active.play(id: id, kind: "songs")
+            }
+            try? await Task.sleep(for: .seconds(30))
+            if active.nowPlaying != nil { pending = nil }
+        }
+    }
+
+    /// Shown when the same request is made repeatedly while one is in flight.
+    /// Clicking again cannot make WebKit resolve a licence any faster, and the
+    /// honest thing is to say so — along with the one thing that would.
+    private(set) var hint: String?
+    private var recentRequests: [Date] = []
+
+    private func noteRequest() {
+        let now = Date()
+        recentRequests.append(now)
+        recentRequests.removeAll { now.timeIntervalSince($0) > 6 }
+
+        if recentRequests.count >= 3, isPreparing {
+            hint = "O app está carregando — clicar de novo não acelera. "
+                + "Para início instantâneo e lossless, compile com a sua conta em Ajustes."
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                hint = nil
+            }
+        }
+    }
+
+    private func showPending(_ item: Item) {
+        noteRequest()
         guard let payload = item.playable else { return }
         pending = NowPlaying(
             trackID: payload.id,
@@ -73,6 +114,14 @@ final class Playback {
             artist: item.subtitle ?? item.addition ?? "",
             artworkURL: item.image?.url(size: 256),
             duration: Double(item.durationMs ?? 0) / 1000)
+    }
+
+    /// Starts a track, showing it immediately from what the catalog already
+    /// told us rather than waiting for the engine to echo it back.
+    func play(_ item: Item) {
+        guard item.playable != nil else { return }
+        showPending(item)
+        let payload = item.playable!
         Task {
             try? await active.play(id: payload.id, kind: payload.type)
             // Give the engine a moment to take over the display.
@@ -103,6 +152,7 @@ final class Playback {
     /// out whether this build can reach native MusicKit.
     func start() async {
         WebKitEngine.shared.start()
+        await Favourites.shared.loadIfNeeded()
         await AppSettings.shared.loadStorefrontLanguages()
 
         // Quiet at launch: asking here would prompt for Apple Music access every

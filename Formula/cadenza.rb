@@ -42,6 +42,14 @@ class Cadenza < Formula
           <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
           <key>LSMinimumSystemVersion</key><string>15.0</string>
           <key>NSHighResolutionCapable</key><true/>
+    <!-- So searching for what the app is finds it. -->
+    <key>CFBundleSpotlightKeywords</key>
+    <array>
+        <string>classical</string><string>clássica</string>
+        <string>apple music classical</string><string>apple music</string>
+        <string>música clássica</string><string>partitura</string>
+        <string>ópera</string><string>concerto</string><string>sinfonia</string>
+    </array>
           <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
           <key>NSAppleMusicUsageDescription</key>
           <string>Cadenza precisa acessar o Apple Music para tocar o catálogo classical.</string>

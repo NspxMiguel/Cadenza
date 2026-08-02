@@ -338,7 +338,9 @@ struct TrackListView: View {
         }
     }
 
-    private func play(_ item: Item) { Playback.shared.play(item) }
+    private func play(_ item: Item) {
+        Playback.shared.play(item, within: page.items + extra)
+    }
 
     var body: some View {
         List {
@@ -348,7 +350,7 @@ struct TrackListView: View {
                 } else {
                     TrackRow(item: entry.item, number: entry.number)
                         .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { play(entry.item) }
+                        .onTapGesture { play(entry.item) }
                 }
             }
         }
@@ -464,6 +466,16 @@ struct NowPlayingBar: View {
     var body: some View {
         if let track = Playback.shared.displayed {
             Divider()
+            if let hint = Playback.shared.hint {
+                HStack(spacing: 7) {
+                    Image(systemName: "info.circle")
+                    Text(hint).font(.callout)
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .background(.quaternary.opacity(0.5))
+            }
             // The scrubber sits above the controls, full width, the way a
             // player is expected to work.
             Scrubber()
@@ -1308,8 +1320,18 @@ struct ScorePanel: View {
                     .buttonStyle(.borderedProminent)
                 Text("PDF ou imagem. O reconhecimento roda no seu Mac e pode errar.")
                     .font(.caption).foregroundStyle(.tertiary)
+            } else if case .installing(let step) = ScoreAI.shared.state {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text(step).font(.callout).foregroundStyle(.secondary)
+                }
             } else {
-                Text("Ative e instale o motor em Ajustes para usar o reconhecimento.")
+                // Turning the setting on is not enough — the engine has to be
+                // downloaded — and sending the user back to Settings for that
+                // is why enabling it appeared to do nothing.
+                Button("Instalar motor de IA e tentar…") { ScoreAI.shared.install() }
+                    .buttonStyle(.borderedProminent)
+                Text("~300 MB, uma vez. O reconhecimento roda no seu Mac.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
         }
@@ -1451,7 +1473,8 @@ struct SectionListView: View {
                         WorkHeadingRow(item: entry.item, model: model)
                             .padding(.horizontal, 24)
                     } else {
-                        SectionRow(item: entry.item, number: entry.number, model: model)
+                        SectionRow(item: entry.item, number: entry.number,
+                                   siblings: component.items, model: model)
                         if position < numbered.count - 1 {
                             Divider().padding(.leading, 24)
                         }
@@ -1465,6 +1488,7 @@ struct SectionListView: View {
 struct SectionRow: View {
     let item: Item
     var number: Int?
+    var siblings: [Item] = []
     let model: AppModel
     @State private var hovering = false
 
@@ -1524,7 +1548,7 @@ struct SectionRow: View {
             if item.action?.url != nil {
                 Task { await model.open(item) }
             } else if item.playable != nil {
-                Playback.shared.play(item)
+                Playback.shared.play(item, within: siblings)
             }
         }
     }

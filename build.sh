@@ -28,6 +28,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- So searching for what the app is finds it. -->
+    <key>CFBundleSpotlightKeywords</key>
+    <array>
+        <string>classical</string><string>clássica</string>
+        <string>apple music classical</string><string>apple music</string>
+        <string>música clássica</string><string>partitura</string>
+        <string>ópera</string><string>concerto</string><string>sinfonia</string>
+    </array>
     <!-- Window restoration is what produced the "quit unexpectedly while
          reopening windows" loop after an unclean exit. The app has no document
          state worth restoring. -->

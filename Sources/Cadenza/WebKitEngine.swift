@@ -98,6 +98,15 @@ final class WebKitEngine: NSObject, Player {
         run("window.__cadenzaPlay(\(quote(id)), \(quote(kind)))")
     }
 
+    /// Queues a run of tracks and starts at one of them, so skipping works.
+    func play(ids: [String], startingAt index: Int) async throws {
+        log("play lista: \(ids.count) faixas, início \(index)")
+        status = .loading
+        let json = (try? JSONSerialization.data(withJSONObject: ids))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        run("window.__cadenzaPlayList(\(quote(json)), \(index))")
+    }
+
     func togglePlayPause() {
         run("window.__cadenzaToggle()")
     }
@@ -375,6 +384,25 @@ extension WebKitEngine {
 
       window.__cadenzaSeek = function (seconds) {
         if (mk) { try { mk.seekToTime(seconds); } catch (e) { fail(e); } }
+      };
+
+      // Queueing the surrounding tracks is what makes skip mean anything: a
+      // queue of one has nowhere to go, which is why the next button did
+      // nothing when a track was started on its own.
+      window.__cadenzaPlayList = function (idsJson, startIndex) {
+        if (!mk) return fail('MusicKit indisponível');
+        var ids = JSON.parse(idsJson);
+        send({ kind: 'trace', step: 'setQueue lista',
+               detail: ids.length + ' faixas, início ' + startIndex });
+        try {
+          Promise.resolve(mk.setQueue({ songs: ids, startWith: startIndex }))
+            .then(function () { return mk.play(); })
+            .then(function () {
+              send({ kind: 'trace', step: 'play resolvido',
+                     detail: 'fila=' + ((mk.queue && mk.queue.length) || 0) });
+            })
+            .catch(function (e) { fail('lista: ' + (e && e.message ? e.message : e)); });
+        } catch (e) { fail('lista síncrona: ' + e); }
       };
 
       window.__cadenzaSkip = function (direction) {

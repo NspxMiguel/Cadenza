@@ -198,6 +198,14 @@ actor LibraryAPI {
         }?.id
     }
 
+    /// Catalog identifiers of every favourited song.
+    func favouriteSongIDs() async -> Set<String> {
+        guard let id = (try? await favouritesPlaylistID()) ?? nil else { return [] }
+        guard let payload: Response<TrackItem> = try? await get(
+            "/playlists/\(id)/tracks?limit=100") else { return [] }
+        return Set(payload.data.compactMap { $0.attributes?.playParams?.catalogId })
+    }
+
     /// Tracks of a library playlist, shaped as a list screen.
     func playlistScreen(id: String, name: String) async throws -> Screen {
         let payload: Response<TrackItem> = try await get(
@@ -296,26 +304,51 @@ final class Favourites {
     /// moment it is pressed instead of after a refetch.
     private var overrides: [String: Bool] = [:]
 
+    /// Catalog identifiers of the songs actually marked as favourite.
+    ///
+    /// The classical API reports `inFavorites` on every track and it is always
+    /// false — favouriting a song does not register there, as a round trip
+    /// showed. The truth lives in the playlist Apple maintains, so that is what
+    /// the star reads.
+    private var favouriteIDs: Set<String> = []
+    private var loaded = false
+
+    func loadIfNeeded() async {
+        guard !loaded else { return }
+        loaded = true
+        favouriteIDs = await LibraryAPI.shared.favouriteSongIDs()
+    }
+
+    func refresh() async {
+        favouriteIDs = await LibraryAPI.shared.favouriteSongIDs()
+    }
+
     func isFavourite(_ item: Item) -> Bool {
-        if let id = item.playable?.id, let override = overrides[id] { return override }
-        return item.inFavorites ?? false
+        guard let id = item.playable?.id else { return false }
+        if let override = overrides[id] { return override }
+        return favouriteIDs.contains(id)
     }
 
     func isFavourite(id: String, fallback: Bool = false) -> Bool {
-        overrides[id] ?? fallback
+        if let override = overrides[id] { return override }
+        return favouriteIDs.contains(id) || fallback
     }
 
     func toggle(_ item: Item) {
         guard let id = item.playable?.id else { return }
-        let next = !isFavourite(item)
-        overrides[id] = next
-        Task { await Self.push(id: id, favourite: next) }
+        toggle(id: id, current: isFavourite(item))
     }
 
     func toggle(id: String, current: Bool) {
         let next = !current
         overrides[id] = next
-        Task { await Self.push(id: id, favourite: next) }
+        Task {
+            await Self.push(id: id, favourite: next)
+            // Read the truth back rather than trusting the write: the endpoint
+            // answers 202 Accepted, which is not the same as done.
+            try? await Task.sleep(for: .seconds(2))
+            await refresh()
+        }
     }
 
     private static func push(id: String, favourite: Bool) async {
