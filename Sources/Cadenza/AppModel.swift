@@ -99,9 +99,33 @@ final class AppModel {
     /// classical catalog — `favorites/playlists` genuinely answers "Nenhuma
     /// playlist", because classical keeps no playlist library of its own.
     private func loadPlaylists(root: Destination?) async {
-        playlists = [Destination(name: "Playlists da biblioteca",
-                                 symbol: "music.note.list",
-                                 path: LibraryRoute.playlists)]
+        await PlaylistStore.shared.refresh()
+        rebuildPlaylistRows()
+    }
+
+    /// Called again after every create, rename or delete, so the sidebar is a
+    /// view of the store rather than a snapshot taken once at launch.
+    func rebuildPlaylistRows() {
+        playlists = PlaylistStore.shared.playlists.map {
+            Destination(name: $0.name, symbol: "music.note.list",
+                        path: LibraryRoute.playlist($0.id))
+        }
+    }
+
+    /// The playlist being looked at, when it is one the user can edit.
+    var currentPlaylist: LibraryAPI.PlaylistSummary? {
+        guard let path = current?.path, path.hasPrefix(LibraryRoute.playlistPrefix)
+        else { return nil }
+        let id = String(path.dropFirst(LibraryRoute.playlistPrefix.count))
+        return PlaylistStore.shared.playlists.first { $0.id == id }
+    }
+
+    /// Drops a screen from the cache and rereads it — used after the app itself
+    /// changes what is on it.
+    func refreshCurrent() async {
+        guard let path = current?.path else { return }
+        await ScreenCache.shared.forget(path)
+        await reload()
     }
 
 

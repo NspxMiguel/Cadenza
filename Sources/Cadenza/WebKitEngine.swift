@@ -118,6 +118,41 @@ final class WebKitEngine: NSObject, Player {
     func skipForward() { run("window.__cadenzaSkip(1)") }
     func skipBackward() { run("window.__cadenzaSkip(-1)") }
 
+    // MARK: The rest of a player
+
+    /// Held locally as well as pushed, so the slider follows the finger instead
+    /// of waiting for the page's next status report to come back.
+    private(set) var volume: Double = 1
+    var supportsVolume: Bool { true }
+
+    func setVolume(_ value: Double) {
+        volume = min(1, max(0, value))
+        run("window.__cadenzaSetVolume(\(volume))")
+    }
+
+    private(set) var shuffle = false
+
+    func setShuffle(_ on: Bool) {
+        shuffle = on
+        run("window.__cadenzaSetShuffle(\(on))")
+    }
+
+    private(set) var repeatMode: RepeatMode = .off
+
+    func setRepeat(_ mode: RepeatMode) {
+        repeatMode = mode
+        run("window.__cadenzaSetRepeat(\(mode.rawValue))")
+    }
+
+    /// What is lined up. Reported by the page rather than tracked here: the
+    /// queue is MusicKit's, and shuffling reorders it behind our back.
+    private(set) var queue: [QueueEntry] = []
+
+    func jump(to entryID: String) {
+        guard let index = queue.firstIndex(where: { $0.id == entryID }) else { return }
+        run("window.__cadenzaJump(\(index))")
+    }
+
     /// Fades to silence over `seconds`, then pauses and restores the volume, so
     /// the next session does not start muted.
     func fadeOutAndPause(over seconds: TimeInterval = 20) {
@@ -221,6 +256,23 @@ extension WebKitEngine: WKScriptMessageHandler {
                 let loading = body["loading"] as? Bool ?? false
                 status = loading ? .loading : (playing ? .playing : .paused)
                 position = body["position"] as? Double ?? 0
+                volume = body["volume"] as? Double ?? volume
+                shuffle = body["shuffle"] as? Bool ?? shuffle
+                if let raw = body["repeatMode"] as? Int, let mode = RepeatMode(rawValue: raw) {
+                    repeatMode = mode
+                }
+                if let rows = body["queue"] as? [[String: Any]] {
+                    let next = rows.map {
+                        QueueEntry(id: $0["id"] as? String ?? "",
+                                   title: $0["title"] as? String ?? "",
+                                   artist: $0["artist"] as? String ?? "",
+                                   isCurrent: $0["current"] as? Bool ?? false)
+                    }
+                    // Assigned only on change: this arrives every second, and
+                    // replacing the array each time redraws the queue list
+                    // continuously for no reason.
+                    if next != queue { queue = next }
+                }
                 if let title = body["title"] as? String, !title.isEmpty {
                     nowPlaying = NowPlaying(
                         trackID: body["trackID"] as? String ?? "",
@@ -318,6 +370,25 @@ extension WebKitEngine {
               kind: 'state',
               playing: !!mk.isPlaying,
               volume: mk.volume,
+              shuffle: mk.shuffleMode === 1,
+              repeatMode: mk.repeatMode || 0,
+              // Capped: a long album is fine, a 500-track playlist would send
+              // the whole thing across the bridge every second.
+              queue: (function () {
+                try {
+                  var q = mk.queue && mk.queue.items ? mk.queue.items : [];
+                  var at = (mk.queue && mk.queue.position) || 0;
+                  return q.slice(0, 60).map(function (entry, i) {
+                    var a = entry.attributes || {};
+                    return {
+                      id: String(entry.id || i),
+                      title: entry.title || a.name || '',
+                      artist: entry.artistName || a.artistName || '',
+                      current: i === at
+                    };
+                  });
+                } catch (e) { return []; }
+              })(),
               loading: mk.playbackState === 1,
               position: mk.currentPlaybackTime || 0,
               duration: mk.currentPlaybackDuration || 0,
@@ -431,6 +502,31 @@ extension WebKitEngine {
 
       window.__cadenzaStop = function () {
         if (mk) { try { mk.stop(); } catch (e) {} }
+      };
+
+      window.__cadenzaSetVolume = function (value) {
+        if (!mk) return;
+        // The silent test mode outranks the slider: a verification run must
+        // stay silent even if the UI thinks the volume is up.
+        try { mk.volume = window.__cadenzaSilent ? 0 : value; } catch (e) {}
+      };
+
+      window.__cadenzaSetShuffle = function (on) {
+        if (!mk) return;
+        try { mk.shuffleMode = on ? 1 : 0; } catch (e) { fail('shuffle: ' + e); }
+      };
+
+      window.__cadenzaSetRepeat = function (mode) {
+        if (!mk) return;
+        try { mk.repeatMode = mode; } catch (e) { fail('repeat: ' + e); }
+      };
+
+      window.__cadenzaJump = function (index) {
+        if (!mk) return;
+        try {
+          Promise.resolve(mk.changeToMediaAtIndex(index))
+            .catch(function (e) { fail('pular para ' + index + ': ' + e); });
+        } catch (e) { fail('pular síncrono: ' + e); }
       };
     })();
     """#

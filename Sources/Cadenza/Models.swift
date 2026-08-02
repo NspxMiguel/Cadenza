@@ -219,6 +219,12 @@ struct Item: Decodable, Identifiable {
     let id = UUID()
     let catalogID: String?
 
+    /// The identifier this row has *inside* the user's library, when it came
+    /// from there. Removing a track from a playlist needs it — the catalog id
+    /// will not do, because the same recording can sit in a playlist twice and
+    /// only the library id tells the two apart. Absent on catalog rows.
+    var libraryID: String?
+
     /// `track`, `subheading`, `album`, `playlist`, `work`, `artist`, `recording`…
     /// A `subheading` is a work title standing above the movements that follow,
     /// not a playable row.
@@ -279,8 +285,10 @@ struct Item: Decodable, Identifiable {
 
     init(catalogID: String? = nil, type: String? = nil, title: String? = nil,
          addition: String? = nil, subtitle: String? = nil, durationMs: Int? = nil,
-         image: Artwork? = nil, action: Action? = nil, payload: Payload? = nil) {
+         image: Artwork? = nil, action: Action? = nil, payload: Payload? = nil,
+         libraryID: String? = nil) {
         self.catalogID = catalogID
+        self.libraryID = libraryID
         self.type = type
         self.title = title
         self.addition = addition

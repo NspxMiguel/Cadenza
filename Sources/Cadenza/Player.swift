@@ -16,6 +16,42 @@ enum PlaybackStatus: Equatable {
     case idle, loading, playing, paused
 }
 
+enum RepeatMode: Int, CaseIterable {
+    case off = 0, one = 1, all = 2
+
+    var symbol: String {
+        switch self {
+        case .off, .all: "repeat"
+        case .one: "repeat.1"
+        }
+    }
+
+    var next: RepeatMode {
+        switch self {
+        case .off: .all
+        case .all: .one
+        case .one: .off
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .off: "Repetição desligada"
+        case .all: "Repetir a fila"
+        case .one: "Repetir a faixa"
+        }
+    }
+}
+
+/// One entry of what is queued up, for the list the transport can show.
+struct QueueEntry: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let artist: String
+    /// True for the item currently sounding.
+    let isCurrent: Bool
+}
+
 struct NowPlaying: Equatable {
     var trackID: String
     var title: String
@@ -52,12 +88,46 @@ protocol Player: AnyObject {
 
     /// Eases to silence before pausing, for the sleep timer.
     func fadeOutAndPause(over seconds: TimeInterval)
+
+    // Declared here, not only defaulted in the extension below. A member that
+    // exists solely as an extension default is dispatched statically: called
+    // through `any Player`, it runs the default even when the concrete engine
+    // overrides it. That is not a subtlety — it made the volume slider vanish
+    // and left shuffle and repeat as buttons that did nothing at all.
+    var volume: Double { get }
+    var supportsVolume: Bool { get }
+    func setVolume(_ value: Double)
+
+    var shuffle: Bool { get }
+    func setShuffle(_ on: Bool)
+
+    var repeatMode: RepeatMode { get }
+    func setRepeat(_ mode: RepeatMode)
+
+    var queue: [QueueEntry] { get }
+    func jump(to entryID: String)
 }
 
 extension Player {
     /// Engines without volume control simply pause. ApplicationMusicPlayer
     /// exposes no volume, so a gradual fade is not available there.
     func fadeOutAndPause(over seconds: TimeInterval) { togglePlayPause() }
+
+    /// Defaults rather than requirements: an engine that cannot offer one of
+    /// these should say so by omission, and the transport hides the control,
+    /// instead of showing a switch that silently does nothing.
+    var volume: Double { 1 }
+    var supportsVolume: Bool { false }
+    func setVolume(_ value: Double) {}
+
+    var shuffle: Bool { false }
+    func setShuffle(_ on: Bool) {}
+
+    var repeatMode: RepeatMode { .off }
+    func setRepeat(_ mode: RepeatMode) {}
+
+    var queue: [QueueEntry] { [] }
+    func jump(to entryID: String) {}
 }
 
 extension Player {

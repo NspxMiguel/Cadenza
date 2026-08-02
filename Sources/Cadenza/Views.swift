@@ -25,6 +25,20 @@ struct RootView: View {
             .overlay(alignment: .bottomLeading) {
                 EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
             }
+            // A write that succeeds silently is indistinguishable from one that
+            // failed silently, so every one of them says what it did.
+            .overlay(alignment: .top) {
+                if let notice = PlaylistStore.shared.notice {
+                    Text(notice)
+                        .font(.callout)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .shadow(radius: 6, y: 2)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.snappy, value: PlaylistStore.shared.notice)
         }
         .searchable(text: Binding(
             get: { model.searchTerm },
@@ -121,14 +135,93 @@ struct Sidebar: View {
                 }
             }
 
-            if !model.playlists.isEmpty {
-                Section("Playlists") {
-                    ForEach(model.playlists) { row($0) }
+            Section {
+                ForEach(model.playlists) { destination in
+                    row(destination)
+                        .contextMenu { playlistMenu(for: destination) }
                 }
+                Label("Nova playlist…", systemImage: "plus")
+                    .foregroundStyle(.secondary)
+                    .onTapGesture { creating = true }
+            } header: {
+                Text("Playlists")
             }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { Color.clear.frame(height: 6) }
+        .alert("Nova playlist", isPresented: $creating) {
+            TextField("Nome", text: $draftName)
+            Button("Cancelar", role: .cancel) { draftName = "" }
+            Button("Criar") { commitCreate() }
+        }
+        .alert("Renomear playlist", isPresented: $renaming) {
+            TextField("Nome", text: $draftName)
+            Button("Cancelar", role: .cancel) { draftName = "" }
+            Button("Renomear") { commitRename() }
+        }
+        .confirmationDialog(
+            "Apagar “\(target?.name ?? "")”?",
+            isPresented: $deleting, titleVisibility: .visible
+        ) {
+            Button("Apagar", role: .destructive) { commitDelete() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("A playlist sai da sua biblioteca do Apple Music. As músicas continuam lá.")
+        }
+    }
+
+    @State private var creating = false
+    @State private var renaming = false
+    @State private var deleting = false
+    @State private var draftName = ""
+    @State private var target: LibraryAPI.PlaylistSummary?
+
+    @ViewBuilder
+    private func playlistMenu(for destination: Destination) -> some View {
+        if let summary = summary(for: destination) {
+            Button("Renomear…") {
+                target = summary
+                draftName = summary.name
+                renaming = true
+            }
+            Button("Apagar…", role: .destructive) {
+                target = summary
+                deleting = true
+            }
+        }
+    }
+
+    private func summary(for destination: Destination) -> LibraryAPI.PlaylistSummary? {
+        let id = String(destination.path.dropFirst(LibraryRoute.playlistPrefix.count))
+        return PlaylistStore.shared.playlists.first { $0.id == id }
+    }
+
+    private func commitCreate() {
+        let name = draftName.trimmingCharacters(in: .whitespaces)
+        draftName = ""
+        guard !name.isEmpty else { return }
+        Task {
+            await PlaylistStore.shared.create(name: name)
+            model.rebuildPlaylistRows()
+        }
+    }
+
+    private func commitRename() {
+        let name = draftName.trimmingCharacters(in: .whitespaces)
+        draftName = ""
+        guard !name.isEmpty, let target else { return }
+        Task {
+            await PlaylistStore.shared.rename(target, to: name)
+            model.rebuildPlaylistRows()
+        }
+    }
+
+    private func commitDelete() {
+        guard let target else { return }
+        Task {
+            await PlaylistStore.shared.delete(target)
+            model.rebuildPlaylistRows()
+        }
     }
 
     private func row(_ destination: Destination) -> some View {
@@ -351,6 +444,10 @@ struct TrackListView: View {
                     TrackRow(item: entry.item, number: entry.number)
                         .contentShape(Rectangle())
                         .onTapGesture { play(entry.item) }
+                        .contextMenu {
+                            TrackMenu(item: entry.item, playlist: model.currentPlaylist,
+                                      model: model)
+                        }
                 }
             }
         }
@@ -364,6 +461,78 @@ struct TrackListView: View {
                 .padding(8)
                 .background(.regularMaterial, in: Capsule())
                 .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+/// What can be done to a track besides playing it.
+///
+/// Four separate ideas the official app also keeps separate, and which this app
+/// conflated until now: playing, favouriting, belonging to the library, and
+/// belonging to a playlist. A recording can be any combination of those.
+struct TrackMenu: View {
+    let item: Item
+    var playlist: LibraryAPI.PlaylistSummary?
+    let model: AppModel
+
+    @State private var store = PlaylistStore.shared
+    @State private var membership = LibraryMembership.shared
+
+    private var catalogID: String? { item.playable?.id }
+
+    var body: some View {
+        if let catalogID {
+            Button(Favourites.shared.isFavourite(item) ? "Desfavoritar" : "Favoritar") {
+                Favourites.shared.toggle(item)
+            }
+            // Asked for when the menu opens rather than for every visible row:
+            // resolving library membership costs a request, and most rows are
+            // never right-clicked.
+            .onAppear { membership.check(catalogID) }
+
+            Button(membership.contains(catalogID) == true
+                   ? "Remover da biblioteca" : "Adicionar à biblioteca") {
+                membership.toggle(catalogID)
+            }
+
+            Menu("Adicionar a playlist") {
+                ForEach(store.playlists) { summary in
+                    Button(summary.name) {
+                        Task {
+                            await store.add(catalogIDs: [catalogID], to: summary)
+                            // The playlist does not contain the track the
+                            // instant the write returns — rereading at once
+                            // shows it still empty, which reads as a failure.
+                            if model.currentPlaylist?.id == summary.id {
+                                try? await Task.sleep(for: .seconds(3))
+                                await model.refreshCurrent()
+                            }
+                        }
+                    }
+                }
+                if !store.playlists.isEmpty { Divider() }
+                Button("Nova playlist com esta faixa…") {
+                    Task {
+                        await store.create(name: item.title ?? "Nova playlist",
+                                           adding: [catalogID])
+                        model.rebuildPlaylistRows()
+                    }
+                }
+            }
+
+            // Only offered where it means something: a track can only be
+            // removed from a playlist while that playlist is what is on screen,
+            // and only by the identifier it has inside it.
+            if let playlist, let libraryID = item.libraryID {
+                Divider()
+                Button("Remover desta playlist", role: .destructive) {
+                    Task {
+                        await store.remove(libraryID: libraryID, from: playlist.id,
+                                           named: playlist.name)
+                        await model.refreshCurrent()
+                    }
+                }
             }
         }
     }
@@ -462,6 +631,7 @@ struct NowPlayingBar: View {
     private var engine: any Player { Playback.shared.active }
     @State private var showingScore = false
     @State private var showingLyrics = false
+    @State private var showingQueue = false
 
     var body: some View {
         if let track = Playback.shared.displayed {
@@ -558,9 +728,41 @@ struct NowPlayingBar: View {
                     ScorePanel().frame(width: 820, height: 620)
                 }
 
+                Button {
+                    showingQueue.toggle()
+                } label: {
+                    Image(systemName: "list.bullet")
+                }
+                .buttonStyle(.plain)
+                .help("A seguir")
+                .popover(isPresented: $showingQueue, arrowEdge: .top) {
+                    QueueList().frame(width: 340, height: 380)
+                }
+
                 SleepTimerMenu()
 
+                if engine.supportsVolume {
+                    HStack(spacing: 5) {
+                        Image(systemName: engine.volume == 0
+                              ? "speaker.slash.fill" : "speaker.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Slider(value: Binding(get: { engine.volume },
+                                              set: { engine.setVolume($0) }),
+                               in: 0...1)
+                            .controlSize(.mini)
+                            .frame(width: 70)
+                    }
+                }
+
                 HStack(spacing: 14) {
+                    Button { engine.setShuffle(!engine.shuffle) } label: {
+                        Image(systemName: "shuffle")
+                            .foregroundStyle(engine.shuffle ? AnyShapeStyle(.tint)
+                                             : AnyShapeStyle(.secondary))
+                    }
+                    .help(engine.shuffle ? "Aleatório ligado" : "Aleatório desligado")
+
                     Button { engine.skipBackward() } label: {
                         Image(systemName: "backward.fill")
                     }
@@ -571,6 +773,13 @@ struct NowPlayingBar: View {
                     Button { engine.skipForward() } label: {
                         Image(systemName: "forward.fill")
                     }
+
+                    Button { engine.setRepeat(engine.repeatMode.next) } label: {
+                        Image(systemName: engine.repeatMode.symbol)
+                            .foregroundStyle(engine.repeatMode == .off
+                                             ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                    }
+                    .help(engine.repeatMode.label)
                 }
                 .buttonStyle(.plain)
                 .font(.title3)
@@ -1226,6 +1435,7 @@ struct ScorePanel: View {
     @State private var searching = false
     @State private var loadedFor: String?
     @State private var offset: TimeInterval = 0
+    @State private var ai = ScoreAI.shared
 
     /// Whether Apple provides timed lyrics for this recording. Most of the
     /// classical catalog does not, and an empty column would only take space.
@@ -1293,12 +1503,18 @@ struct ScorePanel: View {
                 ProgressView("Procurando partitura…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView(
-                    "Sem partitura",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("Nenhuma gravura de domínio público foi encontrada "
-                                      + "para esta faixa. O acervo aberto cobre sobretudo "
-                                      + "Lieder e quartetos de cordas."))
+                // The AI option belongs here, where the score is missing. It
+                // was written but never placed in the view, which is the whole
+                // reason turning the setting on appeared to do nothing.
+                ContentUnavailableView {
+                    Label("Sem partitura", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text("Nenhuma gravura de domínio público foi encontrada para esta "
+                         + "faixa. O acervo aberto cobre sobretudo Lieder e quartetos "
+                         + "de cordas — trilhas de cinema e de jogos não estão nele.")
+                } actions: {
+                    aiOption
+                }
             }
         }
         .task(id: engine.nowPlaying?.trackID) { await load() }
@@ -1310,17 +1526,22 @@ struct ScorePanel: View {
     @ViewBuilder
     private var aiOption: some View {
         VStack(spacing: 7) {
-            if case .working(let step) = ScoreAI.shared.state {
+            if case .working(let step) = ai.state {
                 HStack(spacing: 7) {
                     ProgressView().controlSize(.small)
                     Text(step).font(.callout).foregroundStyle(.secondary)
                 }
-            } else if case .ready = ScoreAI.shared.state {
+            } else if case .failed(let reason) = ai.state {
+                Text("O reconhecimento falhou.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Text(reason).font(.caption2).foregroundStyle(.tertiary).lineLimit(3)
+                Button("Tentar outro arquivo…") { pickAndRecognise() }
+            } else if case .ready = ai.state {
                 Button("Ler uma partitura escaneada…") { pickAndRecognise() }
                     .buttonStyle(.borderedProminent)
-                Text("PDF ou imagem. O reconhecimento roda no seu Mac e pode errar.")
+                Text("PDF ou imagem. Roda no seu Mac, leva alguns minutos e pode errar.")
                     .font(.caption).foregroundStyle(.tertiary)
-            } else if case .installing(let step) = ScoreAI.shared.state {
+            } else if case .installing(let step) = ai.state {
                 HStack(spacing: 7) {
                     ProgressView().controlSize(.small)
                     Text(step).font(.callout).foregroundStyle(.secondary)
@@ -1329,12 +1550,15 @@ struct ScorePanel: View {
                 // Turning the setting on is not enough — the engine has to be
                 // downloaded — and sending the user back to Settings for that
                 // is why enabling it appeared to do nothing.
-                Button("Instalar motor de IA e tentar…") { ScoreAI.shared.install() }
+                Button("Instalar motor de IA e tentar…") { ai.install() }
                     .buttonStyle(.borderedProminent)
                 Text("~300 MB, uma vez. O reconhecimento roda no seu Mac.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
         }
+        // Otherwise a machine that already has the engine is offered the
+        // install button again, and pressing it does nothing.
+        .onAppear { ai.refreshState() }
     }
 
     private func pickAndRecognise() {
@@ -1343,8 +1567,10 @@ struct ScorePanel: View {
         panel.allowsMultipleSelection = false
         panel.message = "Escolha um PDF ou imagem da partitura"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let track = engine.nowPlaying?.trackID
         Task {
             if let xml = await ScoreAI.shared.generate(from: url) {
+                if let track { ScoreAI.shared.store(xml, for: track) }
                 musicXML = xml
                 match = nil
             }
@@ -1368,6 +1594,15 @@ struct ScorePanel: View {
         searching = true
         defer { searching = false }
 
+        // A score read by the engine for this recording outranks the search:
+        // it was chosen by the user for this track, and re-reading it would
+        // cost minutes of CPU to arrive at the same file.
+        if let stored = ai.cached(for: track.trackID) {
+            musicXML = stored
+            hasTimedLyrics = await !LyricsService.shared.lyrics(forTrack: track.trackID).isEmpty
+            return
+        }
+
         // Both are wanted together, so both are looked up together.
         async let lyrics = LyricsService.shared.lyrics(forTrack: track.trackID)
         async let found = ScoreService.shared.score(
@@ -1377,6 +1612,51 @@ struct ScorePanel: View {
         guard let score = await found else { return }
         match = score
         musicXML = await ScoreService.shared.musicXML(for: score)
+    }
+}
+
+/// What is lined up after this track.
+///
+/// The queue was invisible until now, which made the whole app feel like it
+/// played one track at a time even after it stopped doing that.
+struct QueueList: View {
+    private var engine: any Player { Playback.shared.active }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("A seguir")
+                .font(.cadenzaHeading)
+                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+
+            if engine.queue.isEmpty {
+                ContentUnavailableView("Fila vazia", systemImage: "list.bullet",
+                                       description: Text("Toque um álbum ou uma playlist."))
+            } else {
+                List {
+                    ForEach(engine.queue) { entry in
+                        HStack(spacing: 9) {
+                            Image(systemName: entry.isCurrent
+                                  ? "speaker.wave.2.fill" : "music.note")
+                                .font(.caption)
+                                .foregroundStyle(entry.isCurrent
+                                                 ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                                .frame(width: 16)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(entry.title).font(.callout).lineLimit(1)
+                                if !entry.artist.isEmpty {
+                                    Text(entry.artist).font(.caption)
+                                        .foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { engine.jump(to: entry.id) }
+                    }
+                }
+                .listStyle(.inset)
+            }
+        }
     }
 }
 

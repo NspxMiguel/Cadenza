@@ -37,6 +37,18 @@ actor ScreenCache {
         try? data.write(to: directory.appendingPathComponent(key), options: .atomic)
     }
 
+    /// Drops one screen, for when the app itself changed what is on it.
+    ///
+    /// Stale-while-revalidate is right for reading and wrong right after a
+    /// write: a playlist that just lost a track would render with the track
+    /// still there until the refetch landed, which reads as the removal having
+    /// failed.
+    func forget(_ path: String) {
+        let key = Self.key(for: path)
+        memory[key] = nil
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(key))
+    }
+
     func clear() {
         memory.removeAll()
         try? FileManager.default.removeItem(at: directory)

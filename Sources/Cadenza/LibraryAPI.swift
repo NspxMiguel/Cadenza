@@ -25,9 +25,11 @@ actor LibraryAPI {
 
     private let base = "https://amp-api.music.apple.com/v1/me/library"
 
-    struct PlaylistSummary: Sendable {
+    struct PlaylistSummary: Sendable, Identifiable, Hashable {
         let id: String
         let name: String
+        /// Apple's own favourites playlist reports false, and rejects writes.
+        let canEdit: Bool
     }
 
     /// Playlists that actually contain classical music.
@@ -47,25 +49,39 @@ actor LibraryAPI {
                 continue
             }
             let verdict = await isClassical(playlist: summary.id)
-            Self.cacheVerdict(verdict, for: summary.id)
-            if verdict { keep.append(summary) }
+            // An empty playlist gets no verdict stored. It is kept — there is
+            // nothing in it to disqualify it, and a playlist just created here
+            // would otherwise disappear the moment it was made — but the
+            // judgement waits until it has tracks to judge.
+            if verdict.decided { Self.cacheVerdict(verdict.classical, for: summary.id) }
+            if verdict.classical { keep.append(summary) }
         }
         return keep
     }
 
-    private func isClassical(playlist id: String) async -> Bool {
-        guard let payload: Response<TrackItem> = try? await get(
-            "/playlists/\(id)/tracks?limit=25") else { return false }
+    private func isClassical(playlist id: String) async -> (classical: Bool, decided: Bool) {
+        let payload: Response<TrackItem>
+        do {
+            payload = try await get("/playlists/\(id)/tracks?limit=25")
+        } catch APIError.http(404) {
+            // An empty playlist does not answer with an empty list — it answers
+            // 404 "No related resources". Treated as a failure, every playlist
+            // created in this app vanished from the sidebar the moment it was
+            // made, because it had nothing in it yet.
+            return (true, false)
+        } catch {
+            return (false, false)
+        }
 
         let tracks = payload.data
-        guard !tracks.isEmpty else { return false }
+        guard !tracks.isEmpty else { return (true, false) }
 
         let classical = tracks.filter { entry in
             (entry.attributes?.genreNames ?? []).contains { Self.readsAsClassical($0) }
         }
         // Presence alone was too weak: a pop playlist with one crossover track
         // was being kept. A playlist is classical when most of it is.
-        return Double(classical.count) / Double(tracks.count) >= 0.5
+        return (Double(classical.count) / Double(tracks.count) >= 0.5, true)
     }
 
     /// Genre names arrive localised — "Classical", "Música clássica",
@@ -97,7 +113,8 @@ actor LibraryAPI {
         let payload: Response<PlaylistItem> = try await get("/playlists?limit=\(limit)")
         return payload.data.compactMap { entry in
             guard let name = entry.attributes?.name else { return nil }
-            return PlaylistSummary(id: entry.id, name: name)
+            return PlaylistSummary(id: entry.id, name: name,
+                                   canEdit: entry.attributes?.canEdit ?? false)
         }
     }
 
@@ -208,8 +225,21 @@ actor LibraryAPI {
 
     /// Tracks of a library playlist, shaped as a list screen.
     func playlistScreen(id: String, name: String) async throws -> Screen {
-        let payload: Response<TrackItem> = try await get(
-            "/playlists/\(id)/tracks?limit=100")
+        let payload: Response<TrackItem>
+        do {
+            payload = try await get("/playlists/\(id)/tracks?limit=100")
+        } catch APIError.http(404) {
+            // An empty playlist is not an error, but the API reports one. Shown
+            // as a failure, a playlist you just created looks broken instead of
+            // empty.
+            return Screen(
+                screenType: "libraryPlaylist", title: name,
+                header: Header(type: "playlist", title: name, subtitle: "Sua biblioteca"),
+                firstPage: Page(type: "empty", items: [],
+                                heading: "Playlist vazia",
+                                description: "Clique com o botão direito numa gravação "
+                                    + "e escolha “Adicionar a playlist”."))
+        }
 
         let items = payload.data.map { entry -> Item in
             let attributes = entry.attributes
@@ -222,7 +252,8 @@ actor LibraryAPI {
                 image: attributes?.artwork.map { Artwork(url: $0.url) },
                 payload: (attributes?.playParams?.catalogId).map {
                     Payload(id: $0, type: "songs")
-                })
+                },
+                libraryID: entry.id)
         }
 
         return Screen(

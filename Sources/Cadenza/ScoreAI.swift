@@ -43,8 +43,16 @@ final class ScoreAI {
 
     private var pythonPath: URL { root.appendingPathComponent("venv/bin/python3") }
 
+    /// The console script, not the module.
+    ///
+    /// `python3 -m oemer` fails — the package ships no `__main__`, so the
+    /// interpreter refuses it before any recognition starts. Every attempt at
+    /// reading a score failed here, silently, which is why turning the feature
+    /// on appeared to do nothing at all.
+    private var toolPath: URL { root.appendingPathComponent("venv/bin/oemer") }
+
     func refreshState() {
-        state = FileManager.default.fileExists(atPath: pythonPath.path) ? .ready : .notInstalled
+        state = FileManager.default.fileExists(atPath: toolPath.path) ? .ready : .notInstalled
     }
 
     // MARK: Installation
@@ -55,19 +63,27 @@ final class ScoreAI {
         guard case .notInstalled = state else { return }
         state = .installing("Preparando ambiente…")
 
-        Task.detached { [root, pythonPath] in
+        Task.detached { [root, pythonPath, toolPath] in
             try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
             let venv = root.appendingPathComponent("venv")
             _ = Self.run("/usr/bin/python3", ["-m", "venv", venv.path])
 
             await MainActor.run { Self.shared.state = .installing("Baixando o motor de OMR…") }
+            // The pins are not caution, they are the difference between working
+            // and not. The newest oemer requires `onnxruntime-gpu`, which has no
+            // macOS build, so pip silently resolves back to 0.1.5 — and 0.1.5
+            // still calls `np.int`, removed in NumPy 1.24. Installed unpinned,
+            // recognition runs its full three minutes of inference and then dies
+            // on an AttributeError.
             let output = Self.run(pythonPath.path,
-                                  ["-m", "pip", "install", "--quiet", "oemer"])
+                                  ["-m", "pip", "install", "--quiet",
+                                   "oemer", "numpy<1.24", "opencv-python<4.10"])
 
             await MainActor.run {
-                if FileManager.default.fileExists(atPath: pythonPath.path),
-                   output.lowercased().contains("error") == false {
+                // The console script is the thing that has to exist: pip can
+                // finish and still leave nothing runnable behind.
+                if FileManager.default.fileExists(atPath: toolPath.path) {
                     Self.shared.state = .ready
                 } else {
                     Self.shared.state = .failed(String(output.suffix(300)))
@@ -82,6 +98,27 @@ final class ScoreAI {
     }
 
     // MARK: Recognition
+
+    /// A score already read for this recording, if any.
+    ///
+    /// Recognition takes minutes of CPU. Doing it twice for the same recording
+    /// would be the app wasting the user's machine on work it already did.
+    func cached(for trackID: String) -> String? {
+        try? String(contentsOf: cacheURL(trackID), encoding: .utf8)
+    }
+
+    func store(_ musicXML: String, for trackID: String) {
+        let url = cacheURL(trackID)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? musicXML.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func cacheURL(_ trackID: String) -> URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("Cadenza/scores-ai/\(trackID).musicxml")
+    }
 
     /// Reads an engraving and returns MusicXML, or nil.
     func generate(from source: URL) async -> String? {
@@ -111,10 +148,9 @@ final class ScoreAI {
             return nil
         }
 
-        state = .working("Reconhecendo notas… isso usa a CPU e pode demorar.")
-        let output = await Task.detached { [pythonPath] in
-            Self.run(pythonPath.path,
-                     ["-m", "oemer", image.path, "-o", workspace.path])
+        state = .working("Reconhecendo notas… alguns minutos, usando a CPU.")
+        let output = await Task.detached { [toolPath] in
+            Self.run(toolPath.path, [image.path, "-o", workspace.path])
         }.value
 
         let produced = (try? FileManager.default.contentsOfDirectory(
