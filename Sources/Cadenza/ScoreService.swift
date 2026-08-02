@@ -77,33 +77,40 @@ actor ScoreService {
         let entries = await loadIndex()
         guard !entries.isEmpty else { return nil }
 
-        let haystack = Self.normalise(title + " " + (work ?? "") + " " + artist)
+        let words = Set(Self.normalise(title + " " + (work ?? "") + " " + artist)
+            .split(separator: " ").map(String.init))
 
         var best: (Entry, Int)?
         for entry in entries {
-            let movement = Self.normalise(entry.movement)
-            // The movement title is the strongest signal, and short ones are
-            // too common to trust on their own.
-            guard movement.count >= 5, haystack.contains(movement) else { continue }
+            let movementTokens = Self.tokens(entry.movement)
+            guard !movementTokens.isEmpty else { continue }
 
-            var score = movement.count
+            let present = movementTokens.filter { Self.matches($0, in: words) }
+            let coverage = Double(present.count) / Double(movementTokens.count)
+            let weight = present.reduce(0) { $0 + $1.count }
+            guard coverage >= 0.6, weight >= 6 else { continue }
 
-            // Corroboration. The composer is often absent from a recording's
-            // performer list — "Julius Patzak & Jörg Demus" never says Schubert
-            // — so requiring it as a gate rejected correct matches. The work
-            // title corroborates just as well, compared by token because
-            // "Winterreise, D.911" is not a substring of "Winterreise: Die Post".
+            var score = weight + Int(coverage * 20)
+
+            // Corroboration, because a movement title alone can belong to many
+            // pieces. Any one of these is enough — the composer is often absent
+            // from a recording's credits, and standalone songs have no parent
+            // work at all, but a catalogue number is highly specific.
             var corroborated = false
-            if let surname = Self.normalise(entry.composer).split(separator: " ").first,
-               surname.count > 3, haystack.contains(surname) {
+            if let surname = Self.tokens(entry.composer).first,
+               surname.count > 3, Self.matches(surname, in: words) {
                 score += 40
                 corroborated = true
             }
-            for token in Self.normalise(entry.work).split(separator: " ")
-            where token.count >= 5 && haystack.contains(token) {
+            for token in Self.tokens(entry.work)
+            where token.count >= 5 && Self.matches(token, in: words) {
                 score += 25
                 corroborated = true
                 break
+            }
+            if present.contains(where: { $0.count >= 2 && $0.allSatisfy(\.isNumber) }) {
+                score += 30
+                corroborated = true
             }
             guard corroborated else { continue }
 
@@ -112,6 +119,19 @@ actor ScoreService {
 
         guard let (entry, _) = best, let url = URL(string: entry.path) else { return nil }
         return Match(title: entry.movement, composer: entry.composer, downloadURL: url)
+    }
+
+    /// Whole-word comparison, with a prefix allowance for longer tokens so
+    /// "Müller" still finds "Müllerin".
+    ///
+    /// Substring matching looked equivalent and was not: "der" matches inside
+    /// "wandern", which let *Der Müller und der Bach* outscore *Das Wandern* on
+    /// three false hits. A wrong score is worse than none — it appears to follow
+    /// while showing different music.
+    private static func matches(_ token: String, in words: Set<String>) -> Bool {
+        if words.contains(token) { return true }
+        guard token.count >= 5 else { return false }
+        return words.contains { $0.hasPrefix(token) }
     }
 
     /// Downloads and unpacks the compressed MusicXML.
@@ -133,6 +153,11 @@ actor ScoreService {
     private static func humanise(_ raw: String) -> String {
         raw.replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: ",", with: "")
+    }
+
+    /// Words worth comparing: short ones match by accident.
+    private static func tokens(_ raw: String) -> [String] {
+        normalise(raw).split(separator: " ").map(String.init).filter { $0.count >= 3 }
     }
 
     private static func normalise(_ raw: String) -> String {
