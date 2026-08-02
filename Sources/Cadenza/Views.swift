@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Root
 
@@ -457,7 +459,6 @@ struct TrackRow: View {
 /// to implying a quality the app cannot produce.
 struct NowPlayingBar: View {
     private var engine: any Player { Playback.shared.active }
-    @State private var showingLyrics = false
     @State private var showingScore = false
 
     var body: some View {
@@ -508,25 +509,14 @@ struct NowPlayingBar: View {
                 .help("Favoritar")
 
                 Button {
-                    showingLyrics.toggle()
-                } label: {
-                    Image(systemName: "quote.bubble")
-                }
-                .buttonStyle(.plain)
-                .help("Letra")
-                .popover(isPresented: $showingLyrics, arrowEdge: .top) {
-                    LyricsPanel().frame(width: 460, height: 420)
-                }
-
-                Button {
                     showingScore.toggle()
                 } label: {
                     Image(systemName: "music.quarternote.3")
                 }
                 .buttonStyle(.plain)
-                .help("Partitura")
+                .help("Partitura e letra")
                 .popover(isPresented: $showingScore, arrowEdge: .top) {
-                    ScorePanel().frame(width: 720, height: 560)
+                    ScorePanel().frame(width: 760, height: 600)
                 }
 
                 SleepTimerMenu()
@@ -838,11 +828,15 @@ struct SettingsView: View {
             }
 
             Divider().padding(.vertical, 4)
+            ScoreAISection()
+
+            Divider().padding(.vertical, 4)
             CacheSection()
         }
         .formStyle(.grouped)
-        .frame(width: 520)
-        .padding()
+        // The panel grew past a fixed height once the beta section landed, and
+        // a Form does not scroll on its own.
+        .frame(width: 540, height: 620)
     }
 }
 
@@ -991,13 +985,30 @@ struct ScorePanel: View {
     @State private var loadedFor: String?
     @State private var offset: TimeInterval = 0
 
+    /// Engravings of vocal music carry their text as <lyric> elements. When they
+    /// do, printing a separate lyric column beside them would duplicate what is
+    /// already on the staff.
+    private var scoreHasLyrics: Bool { musicXML?.contains("<lyric") ?? false }
+
     var body: some View {
         VStack(spacing: 0) {
             if let musicXML, let track = engine.nowPlaying {
-                ScoreView(musicXML: musicXML,
-                          position: engine.position,
-                          duration: track.duration,
-                          offset: offset)
+                if scoreHasLyrics {
+                    // A normal score already prints the words under the notes,
+                    // which is exactly what the engraving gives us.
+                    ScoreView(musicXML: musicXML,
+                              position: engine.position,
+                              duration: track.duration,
+                              offset: offset)
+                } else {
+                    HSplitView {
+                        ScoreView(musicXML: musicXML,
+                                  position: engine.position,
+                                  duration: track.duration,
+                                  offset: offset)
+                        LyricsPanel().frame(minWidth: 210, idealWidth: 260)
+                    }
+                }
 
                 Divider()
                 HStack(spacing: 10) {
@@ -1031,6 +1042,43 @@ struct ScorePanel: View {
             }
         }
         .task(id: engine.nowPlaying?.trackID) { await load() }
+    }
+
+    /// Recognition needs a scanned score to read. Sourcing one automatically
+    /// from IMSLP is not wired yet — their files sit behind a download gateway —
+    /// so for now the file is chosen by hand.
+    @ViewBuilder
+    private var aiOption: some View {
+        VStack(spacing: 7) {
+            if case .working(let step) = ScoreAI.shared.state {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text(step).font(.callout).foregroundStyle(.secondary)
+                }
+            } else if case .ready = ScoreAI.shared.state {
+                Button("Ler uma partitura escaneada…") { pickAndRecognise() }
+                    .buttonStyle(.borderedProminent)
+                Text("PDF ou imagem. O reconhecimento roda no seu Mac e pode errar.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            } else {
+                Text("Ative e instale o motor em Ajustes para usar o reconhecimento.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func pickAndRecognise() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf, .png, .jpeg]
+        panel.allowsMultipleSelection = false
+        panel.message = "Escolha um PDF ou imagem da partitura"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            if let xml = await ScoreAI.shared.generate(from: url) {
+                musicXML = xml
+                match = nil
+            }
+        }
     }
 
     private func load() async {
@@ -1217,6 +1265,93 @@ struct SectionRow: View {
             } else if let payload = item.playable {
                 Task { try? await Playback.shared.active.play(id: payload.id, kind: payload.type) }
             }
+        }
+    }
+}
+
+// MARK: - AI score generation
+
+/// The beta corner of Settings.
+///
+/// Stated plainly because the feature deserves it: it reads engravings, not
+/// audio; it runs on this machine and costs real time; and the result may be
+/// wrong.
+struct ScoreAISection: View {
+    @State private var ai = ScoreAI.shared
+    @State private var enabled = ScoreAI.shared.isEnabled
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Toggle(isOn: $enabled) {
+                HStack(spacing: 6) {
+                    Text("Gerar partituras com IA")
+                    Text("BETA")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.orange.opacity(0.22), in: Capsule())
+                        .foregroundStyle(.orange)
+                }
+            }
+            .onChange(of: enabled) { _, value in ai.isEnabled = value }
+
+            Text("Quando não existir gravura de domínio público para a faixa, o Cadenza "
+                 + "pode ler uma partitura escaneada e convertê-la em partitura acompanhável.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                caveat("O processamento é local: nada sai do seu Mac, e o uso de CPU é alto.")
+                caveat("O reconhecimento pode errar. Scans ruins produzem partituras erradas.")
+                caveat("Não transcreve o áudio — isso é impossível, o FairPlay não libera o som. "
+                       + "Ele lê a imagem de uma partitura.")
+            }
+
+            if enabled { engineControls }
+        }
+        .task { ai.refreshState() }
+    }
+
+    @ViewBuilder
+    private var engineControls: some View {
+        switch ai.state {
+        case .notInstalled:
+            HStack(spacing: 8) {
+                Button("Instalar motor de reconhecimento") { ai.install() }
+                Text("~300 MB").font(.caption).foregroundStyle(.tertiary)
+            }
+        case .installing(let step):
+            HStack(spacing: 7) {
+                ProgressView().controlSize(.small)
+                Text(step).font(.callout).foregroundStyle(.secondary)
+            }
+        case .ready:
+            HStack(spacing: 10) {
+                Label("Motor instalado", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green).font(.callout)
+                Button("Remover") { ai.uninstall() }.buttonStyle(.link)
+            }
+        case .working(let step):
+            HStack(spacing: 7) {
+                ProgressView().controlSize(.small)
+                Text(step).font(.callout).foregroundStyle(.secondary)
+            }
+        case .failed(let reason):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Falhou", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red).font(.callout)
+                Text(reason).font(.caption2.monospaced())
+                    .foregroundStyle(.secondary).lineLimit(4)
+                Button("Tentar de novo") { ai.uninstall(); ai.install() }.buttonStyle(.link)
+            }
+        }
+    }
+
+    private func caveat(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "circle.fill").font(.system(size: 4)).foregroundStyle(.tertiary)
+            Text(text).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

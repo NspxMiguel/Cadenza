@@ -40,3 +40,25 @@ following while displaying different music, which is worse than showing none.
 Movement folders are prefixed with their order — `13_Die_Post` — and that number
 never appears in a track title, so it is stripped before comparison. Missing
 that is why the first matching pass found nothing at all.
+
+## Reading scans with AI (beta)
+
+Settings offers optical music recognition, run locally with `oemer` — open
+source, ONNX-based, installed on demand because it pulls in large dependencies
+that most users will never want.
+
+It is worth being exact about what this does. It does **not** transcribe the
+recording: transcription needs the audio samples, and FairPlay never releases
+them, so a model given no audio would not be reading the music but inventing it.
+What it does is read an *engraving* — an image of a printed score — and turn it
+into MusicXML the app can follow. That is a different problem and a solvable one.
+
+The caveats are shown in the interface rather than buried here: processing is
+local and CPU-heavy, and recognition quality follows scan quality, so a poor
+scan yields a wrong score.
+
+Sourcing the scan automatically is not wired. IMSLP holds the scans, but its
+files sit behind a download gateway, and the page images its API exposes are
+cover thumbnails rather than score pages. Until that is solved the file is
+chosen by hand, which is honest about what works rather than offering a button
+that quietly fails.
