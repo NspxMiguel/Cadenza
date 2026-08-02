@@ -296,6 +296,9 @@ struct Header: Decodable {
         self.image = image
         self.year = nil
         self.lastUpdated = nil
+        self.composerName = nil
+        self.composerAction = nil
+        self.editorialNotes = nil
         self.audioTraits = nil
     }
 
@@ -305,14 +308,48 @@ struct Header: Decodable {
     let image: Artwork?
     let year: String?
     let lastUpdated: String?
+    /// Work screens name their composer separately and link to them, which is
+    /// the navigation that matters most in a classical catalog.
+    let composerName: String?
+    let composerAction: Action?
+    let editorialNotes: EditorialNotes?
     /// What the recording offers — `lossless`, `lossy-stereo`, `atmos`. What the
     /// engine can actually deliver is a separate question.
     let audioTraits: [String]?
 
     var offersLossless: Bool { audioTraits?.contains("lossless") ?? false }
 
+    /// Works carry no cover art — there is nothing to photograph — so the
+    /// caller should fall back rather than wait on an image that never comes.
+    var hasArtwork: Bool { image?.url != nil }
+
+    /// Browse and search screens carry a header holding nothing but a title.
+    /// Rendering a masthead for those produces a large empty cover above the
+    /// results, so they are treated as having no header at all.
+    var isDecorative: Bool {
+        hasArtwork || composerName != nil || editorialNotes?.text != nil
+            || (subtitle?.isEmpty == false) || year != nil || lastUpdated != nil
+    }
+
     var caption: String? {
         [subtitle, year ?? lastUpdated].compactMap { $0 }.filter { !$0.isEmpty }.first
+    }
+}
+
+/// Programme note attached to a work, album or playlist.
+struct EditorialNotes: Decodable {
+    let standard: String?
+    let short: String?
+
+    var text: String? {
+        let value = standard ?? short
+        guard let value, !value.isEmpty else { return nil }
+        // The notes arrive with light HTML markup.
+        return value
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

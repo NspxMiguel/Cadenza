@@ -147,7 +147,7 @@ struct ScreenView: View {
                 if let page = screen.firstPage, !page.isEmptyState {
                     VStack(spacing: 0) {
                         if let header = screen.header {
-                            ScreenHeader(header: header, context: model.playableContext)
+                            ScreenHeader(header: header, context: model.playableContext, model: model)
                         }
                         TrackListView(page: page, model: model)
                     }
@@ -157,7 +157,13 @@ struct ScreenView: View {
                         systemImage: "music.note.list",
                         description: Text(page.description ?? ""))
                 } else {
-                    content(screen)
+                    VStack(spacing: 0) {
+                        if let header = screen.header, header.isDecorative {
+                            ScreenHeader(header: header,
+                                         context: model.playableContext, model: model)
+                        }
+                        content(screen)
+                    }
                 }
             } else if model.isLoading {
                 ProgressView()
@@ -180,11 +186,23 @@ struct ScreenView: View {
                 ForEach(Array(screen.sections.enumerated()), id: \.offset) { _, section in
                     ForEach(Array(section.components.enumerated()), id: \.offset) { _, component in
                         if !component.items.isEmpty {
-                            ShelfView(
-                                component: component,
-                                heading: section.displayTitle,
-                                seeAll: section.heading?.seeAll,
-                                model: model)
+                            // The API distinguishes a shelf of covers from a
+                            // list of rows. Rendering a track list as cards
+                            // produced a wall of placeholder initials, because
+                            // individual tracks carry no artwork of their own.
+                            if component.type == "list" {
+                                SectionListView(
+                                    component: component,
+                                    heading: section.displayTitle,
+                                    seeAll: section.heading?.seeAll,
+                                    model: model)
+                            } else {
+                                ShelfView(
+                                    component: component,
+                                    heading: section.displayTitle,
+                                    seeAll: section.heading?.seeAll,
+                                    model: model)
+                            }
                         }
                     }
                 }
@@ -535,22 +553,16 @@ struct NowPlayingBar: View {
 struct ScreenHeader: View {
     let header: Header
     let context: Payload?
+    var model: AppModel? = nil
+
+    @State private var notesExpanded = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 22) {
-            AsyncImage(url: header.image?.url(size: 600)) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    Rectangle().fill(.quaternary)
-                        .overlay(Image(systemName: "music.note").font(.largeTitle)
-                            .foregroundStyle(.secondary))
-                }
-            }
-            .frame(width: 208, height: 208)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .shadow(radius: 12, y: 4)
+            cover
+                .frame(width: 208, height: 208)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .shadow(radius: 12, y: 4)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(header.title ?? "")
@@ -558,12 +570,20 @@ struct ScreenHeader: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let subtitle = header.subtitle, !subtitle.isEmpty {
+                // A work names its composer; a recording names its performers.
+                if let composer = header.composerName, !composer.isEmpty {
+                    composerLink(composer)
+                } else if let subtitle = header.subtitle, !subtitle.isEmpty {
                     Text(subtitle).font(.title3).foregroundStyle(.tint).lineLimit(2)
                 }
 
                 HStack(spacing: 8) {
-                    if let extra = header.year ?? header.lastUpdated {
+                    // On a work this is the catalogue number — K. 626 — which
+                    // identifies the piece far better than a year would.
+                    if header.composerName != nil, let catalogue = header.subtitle,
+                       !catalogue.isEmpty {
+                        Text(catalogue).font(.subheadline).foregroundStyle(.secondary)
+                    } else if let extra = header.year ?? header.lastUpdated {
                         Text(extra).font(.subheadline).foregroundStyle(.secondary)
                     }
                     if header.offersLossless {
@@ -589,6 +609,9 @@ struct ScreenHeader: View {
                     .padding(.top, 6)
                 }
 
+                if let notes = header.editorialNotes?.text {
+                    programmeNote(notes)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -596,48 +619,69 @@ struct ScreenHeader: View {
         .padding(.top, 20)
         .padding(.bottom, 16)
     }
-}
 
-// MARK: - Sleep timer
-
-/// Stops the music after a chosen interval, fading out rather than cutting.
-/// The kind of thing the official app never offered on any platform.
-struct SleepTimerMenu: View {
-    private var engine: any Player { Playback.shared.active }
-    @State private var now = Date()
-
-    private let tick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
-
-    private var remaining: String? {
-        guard let deadline = Playback.shared.sleepDeadline else { return nil }
-        let minutes = max(0, Int(deadline.timeIntervalSince(now) / 60) + 1)
-        return "\(minutes) min"
+    @ViewBuilder
+    private var cover: some View {
+        if header.hasArtwork {
+            AsyncImage(url: header.image?.url(size: 600)) { phase in
+                switch phase {
+                case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                default: placeholder
+                }
+            }
+        } else {
+            placeholder
+        }
     }
 
-    var body: some View {
-        Menu {
-            ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
-                Button("Parar em \(minutes) min") {
-                    Playback.shared.scheduleSleep(after: Double(minutes) * 60)
-                    now = Date()
-                }
-            }
-            if Playback.shared.sleepDeadline != nil {
-                Divider()
-                Button("Cancelar timer") { Playback.shared.cancelSleep() }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: Playback.shared.sleepDeadline == nil ? "moon" : "moon.fill")
-                if let remaining {
-                    Text(remaining).font(.caption.monospacedDigit())
-                }
+    /// Works have no cover art in the catalog, so the composer's initial stands
+    /// in rather than an empty grey square.
+    private var placeholder: some View {
+        ZStack {
+            LinearGradient(colors: [.secondary.opacity(0.30), .secondary.opacity(0.12)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let initial = (header.composerName ?? header.title)?
+                .trimmingCharacters(in: .whitespaces).first {
+                Text(String(initial).uppercased())
+                    .font(.system(size: 78, weight: .light, design: .serif))
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "music.quarternote.3")
+                    .font(.system(size: 44)).foregroundStyle(.secondary)
             }
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Temporizador de sono")
-        .onReceive(tick) { now = $0 }
+    }
+
+    private func composerLink(_ composer: String) -> some View {
+        HStack(spacing: 4) {
+            Text(composer).font(.title3).foregroundStyle(.tint)
+            if header.composerAction?.url != nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.tint.opacity(0.7))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let action = header.composerAction, action.url != nil, let model else { return }
+            Task { await model.go(toAction: action, named: composer) }
+        }
+    }
+
+    private func programmeNote(_ notes: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(notes)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(notesExpanded ? nil : 3)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(notesExpanded ? "menos" : "mais") {
+                withAnimation(.easeInOut(duration: 0.18)) { notesExpanded.toggle() }
+            }
+            .buttonStyle(.link)
+            .font(.caption)
+        }
+        .padding(.top, 8)
+        .frame(maxWidth: 640, alignment: .leading)
     }
 }
 
@@ -983,5 +1027,170 @@ struct ScorePanel: View {
             forTrack: track.title, artist: track.artist, work: nil) else { return }
         match = found
         musicXML = await ScoreService.shared.musicXML(for: found)
+    }
+}
+
+// MARK: - Sleep timer
+
+/// Stops the music after a chosen interval, fading out rather than cutting.
+/// The kind of thing the official app never offered on any platform.
+struct SleepTimerMenu: View {
+    @State private var now = Date()
+
+    private let tick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
+
+    private var remaining: String? {
+        guard let deadline = Playback.shared.sleepDeadline else { return nil }
+        let minutes = max(0, Int(deadline.timeIntervalSince(now) / 60) + 1)
+        return "\(minutes) min"
+    }
+
+    var body: some View {
+        Menu {
+            ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+                Button("Parar em \(minutes) min") {
+                    Playback.shared.scheduleSleep(after: Double(minutes) * 60)
+                    now = Date()
+                }
+            }
+            if Playback.shared.sleepDeadline != nil {
+                Divider()
+                Button("Cancelar timer") { Playback.shared.cancelSleep() }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: Playback.shared.sleepDeadline == nil ? "moon" : "moon.fill")
+                if let remaining {
+                    Text(remaining).font(.caption.monospacedDigit())
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Temporizador de sono")
+        .onReceive(tick) { now = $0 }
+    }
+}
+
+// MARK: - Section list
+
+/// A section the catalog marks as a list: tracks, recordings, related works.
+/// These read as rows, not as covers — a movement has no artwork of its own,
+/// and its title is the information that matters.
+struct SectionListView: View {
+    let component: Component
+    var heading: String?
+    var seeAll: Action?
+    let model: AppModel
+
+    /// Numbering counts tracks only and restarts under each work heading, so a
+    /// heading row does not consume position 1.
+    private var numbered: [(item: Item, number: Int?)] {
+        var counter = 0
+        return component.items.map { item in
+            guard !item.isHeading else { counter = 0; return (item, nil) }
+            counter += 1
+            return (item, counter)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let heading, !heading.isEmpty {
+                let label = heading
+                HStack(spacing: 5) {
+                    Text(label).font(.cadenzaHeading)
+                    if seeAll?.url != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.body.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 24)
+                .onTapGesture {
+                    guard let action = seeAll, action.url != nil else { return }
+                    Task { await model.go(toAction: action, named: label) }
+                }
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(numbered.enumerated()), id: \.element.item.id) { position, entry in
+                    if entry.item.isHeading {
+                        WorkHeadingRow(item: entry.item, model: model)
+                            .padding(.horizontal, 24)
+                    } else {
+                        SectionRow(item: entry.item, number: entry.number, model: model)
+                        if position < numbered.count - 1 {
+                            Divider().padding(.leading, 24)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct SectionRow: View {
+    let item: Item
+    var number: Int?
+    let model: AppModel
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if item.image?.url != nil {
+                AsyncImage(url: item.image?.url(size: 120)) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                    default: ArtworkPlaceholder(item: item)
+                    }
+                }
+                .frame(width: 42, height: 42)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else if let number {
+                Text("\(number)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 42, alignment: .center)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title ?? "—").font(.body).lineLimit(1)
+                if let subtitle = item.subtitle ?? item.addition, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            if item.playable != nil, hovering || Favourites.shared.isFavourite(item) {
+                Button { Favourites.shared.toggle(item) } label: {
+                    Image(systemName: Favourites.shared.isFavourite(item) ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundStyle(Favourites.shared.isFavourite(item) ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let duration = item.duration {
+                Text(duration).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            if item.action?.url != nil {
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 7)
+        .background(hovering ? Color.secondary.opacity(0.08) : .clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            if item.action?.url != nil {
+                Task { await model.open(item) }
+            } else if let payload = item.playable {
+                Task { try? await Playback.shared.active.play(id: payload.id, kind: payload.type) }
+            }
+        }
     }
 }
