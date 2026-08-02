@@ -767,12 +767,12 @@ struct ArtworkPlaceholder: View {
     private var symbol: String {
         if isNavigation { return "square.grid.2x2" }
         switch item.type {
-        case "artist": "person.fill"
-        case "work": "doc.text.fill"
-        case "album": "square.stack.fill"
-        case "playlist": "music.note.list"
-        case "recording": "waveform"
-        default: "music.note"
+        case "artist": return "person.fill"
+        case "work": return "doc.text.fill"
+        case "album": return "square.stack.fill"
+        case "playlist": return "music.note.list"
+        case "recording": return "waveform"
+        default: return "music.note"
         }
     }
 
