@@ -35,15 +35,18 @@ struct RootView: View {
             Sidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
         } detail: {
-            VStack(spacing: 0) {
-                ScreenView(model: model, filter: filter, order: order,
-                           onlyFavourites: onlyFavourites)
-                StatusStrip()
-            }
+            ScreenView(model: model, filter: filter, order: order,
+                       onlyFavourites: onlyFavourites)
             // The player floats over the list rather than displacing it, which
-            // is why the pill has to be an overlay and not another row.
+            // is why the pill has to be an overlay and not another row. The
+            // status line rides above it in the same stack: left at the bottom
+            // of the window it was drawn *under* the pill and clipped by the
+            // window edge, which is why it could not be read.
             .overlay(alignment: .bottom) {
-                FloatingPlayer(expanded: $expanded)
+                VStack(spacing: 8) {
+                    StatusStrip()
+                    FloatingPlayer(expanded: $expanded)
+                }
             }
             .overlay(alignment: .bottomLeading) {
                 EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
@@ -1127,10 +1130,10 @@ struct ScreenHeader: View {
                 if let context {
                     HStack(spacing: 12) {
                         bigButton("Reproduzir", icon: "play.fill") {
-                            Playback.shared.active.setShuffle(false)
                             Playback.shared.play(context: context,
                                                  title: header.title ?? "",
-                                                 artwork: header.image?.url(size: 256))
+                                                 artwork: header.image?.url(size: 256),
+                                                 shuffled: false)
                         }
 
                         // Offered on collections, withheld on a work. Shuffling
@@ -1140,10 +1143,10 @@ struct ScreenHeader: View {
                         // invitation to break that.
                         if header.composerName == nil {
                             bigButton("Aleatório", icon: "shuffle") {
-                                Playback.shared.active.setShuffle(true)
                                 Playback.shared.play(context: context,
                                                      title: header.title ?? "",
-                                                     artwork: header.image?.url(size: 256))
+                                                     artwork: header.image?.url(size: 256),
+                                                     shuffled: true)
                             }
                         }
                     }
@@ -1294,7 +1297,15 @@ struct LyricsPanel: View {
 
     var body: some View {
         Group {
-            if lines.isEmpty {
+            if engine.nowPlaying == nil {
+                // Nothing is playing, so nothing can be said about a lyric —
+                // announcing "sem letra" here states something false about a
+                // recording that has not been chosen yet.
+                ContentUnavailableView(
+                    "Nada tocando",
+                    systemImage: "music.note",
+                    description: Text("Entre numa música para ver se ela tem letra."))
+            } else if lines.isEmpty {
                 ContentUnavailableView(
                     "Sem letra",
                     systemImage: "text.quote",

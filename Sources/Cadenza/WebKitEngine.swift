@@ -93,9 +93,14 @@ final class WebKitEngine: NSObject, Player {
     /// `kind` mirrors the catalog's `payload.type` — `songs`, `albums`,
     /// `playlists` — which is what MusicKit's queue descriptor expects.
     func play(id: String, kind: String) async throws {
-        log("play pedido: id=\(id) kind=\(kind) pronto=\(isReady)")
+        try await play(id: id, kind: kind, shuffled: false)
+    }
+
+    func play(id: String, kind: String, shuffled: Bool) async throws {
+        log("play pedido: id=\(id) kind=\(kind) aleatório=\(shuffled) pronto=\(isReady)")
         status = .loading
-        run("window.__cadenzaPlay(\(quote(id)), \(quote(kind)))")
+        shuffle = shuffled
+        run("window.__cadenzaPlay(\(quote(id)), \(quote(kind)), \(shuffled))")
     }
 
     /// Queues a run of tracks and starts at one of them, so skipping works.
@@ -420,32 +425,28 @@ extension WebKitEngine {
         return { songs: 'song', albums: 'album', playlists: 'playlist' }[kind] || 'song';
       };
 
-      window.__cadenzaPlay = function (id, kind) {
+      window.__cadenzaPlay = function (id, kind, shuffled) {
         if (!mk) return fail('MusicKit indisponível');
-        var q = {};
-        q[descriptorKey(kind)] = id;
-        send({ kind: 'trace', step: 'setQueue', detail: JSON.stringify(q) });
         try {
-          Promise.resolve(mk.setQueue(q))
+          var descriptor = {};
+          descriptor[kind] = [id];
+          send({ kind: 'trace', step: 'setQueue', detail: kind + ' ' + id +
+                 (shuffled ? ' (aleatório)' : '') });
+          Promise.resolve(mk.setQueue(descriptor))
             .then(function () {
-              send({
-                kind: 'trace', step: 'fila pronta',
-                detail: 'itens=' + ((mk.queue && mk.queue.length) || 0) +
-                        ' estado=' + mk.playbackState
-              });
+              // Shuffle is set here, on the queue that now exists. Setting it
+              // before setQueue resolves shuffles the *previous* queue and the
+              // new one plays in order — which is exactly what made the
+              // header's Aleatório button look like it did nothing.
+              try { mk.shuffleMode = shuffled ? 1 : 0; } catch (e) {}
               return mk.play();
             })
             .then(function () {
-              send({
-                kind: 'trace', step: 'play resolvido',
-                detail: 'tocando=' + !!mk.isPlaying + ' estado=' + mk.playbackState +
-                        ' item=' + (mk.nowPlayingItem ? 'sim' : 'não')
-              });
+              send({ kind: 'trace', step: 'play resolvido',
+                     detail: 'fila=' + ((mk.queue && mk.queue.length) || 0) });
             })
-            .catch(function (e) { fail('promessa: ' + (e && e.message ? e.message : e)); });
-        } catch (e) {
-          fail('exceção síncrona: ' + (e && e.message ? e.message : e));
-        }
+            .catch(function (e) { fail('play: ' + (e && e.message ? e.message : e)); });
+        } catch (e) { fail('play síncrono: ' + e); }
       };
 
       window.__cadenzaToggle = function () {
@@ -512,6 +513,9 @@ extension WebKitEngine {
       };
 
       window.__cadenzaSetShuffle = function (on) {
+        // Applies to the queue that exists now. Setting it before a setQueue
+        // resolves shuffles the *old* queue and the new one plays in order,
+        // which is why the header's Aleatório button appeared to do nothing.
         if (!mk) return;
         try { mk.shuffleMode = on ? 1 : 0; } catch (e) { fail('shuffle: ' + e); }
       };

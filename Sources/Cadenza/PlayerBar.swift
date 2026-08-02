@@ -30,7 +30,7 @@ struct FloatingPlayer: View {
                 .padding(.trailing, 18)
 
             record
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: 200, maxWidth: .infinity)
 
             extras
                 .padding(.leading, 16)
@@ -118,10 +118,19 @@ struct FloatingPlayer: View {
                         }
                     }
 
-                    Text(Playback.shared.isPreparing ? "Carregando…" : track.artist)
+                    if Playback.shared.stalled {
+                        Button("Não iniciou. Tentar de novo") {
+                            Playback.shared.dismissStalled()
+                        }
+                        .buttonStyle(.plain)
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .foregroundStyle(.orange)
+                    } else {
+                        Text(Playback.shared.isPreparing ? "Carregando…" : track.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 0)

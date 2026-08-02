@@ -61,7 +61,39 @@ final class Playback {
     /// for while that is still being arranged.
     var displayed: NowPlaying? { active.nowPlaying ?? pending }
 
-    var isPreparing: Bool { active.nowPlaying == nil && pending != nil }
+    var isPreparing: Bool { active.nowPlaying == nil && pending != nil && !stalled }
+
+    /// True when a request was made and the engine never reported a track.
+    ///
+    /// "Carregando…" is only honest while something is actually being
+    /// arranged. Left on forever it becomes a lie about a request that failed,
+    /// and the listener has no way to tell the two apart — which is exactly
+    /// what a stuck player looks like from outside.
+    private(set) var stalled = false
+    private var watchdog: Task<Void, Never>?
+
+    /// Starts the clock on a request. If nothing is playing by the time it
+    /// fires, the app says so instead of spinning.
+    private func watchForStall() {
+        stalled = false
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled, let self else { return }
+            if self.active.nowPlaying == nil, self.pending != nil {
+                self.stalled = true
+                Diagnostics.log("[playback] pedido travou: nada tocando 20s depois")
+            }
+        }
+    }
+
+    /// Forgets a failed request, so the transport goes back to being empty
+    /// rather than showing a track that never started.
+    func dismissStalled() {
+        watchdog?.cancel()
+        stalled = false
+        pending = nil
+    }
 
     /// Starts a track within its surroundings, so the queue holds the rest of
     /// the album or playlist and skipping forward has somewhere to go.
@@ -115,6 +147,7 @@ final class Playback {
 
     private func showPending(_ item: Item) {
         noteRequest()
+        watchForStall()
         guard let payload = item.playable else { return }
         pending = NowPlaying(
             trackID: payload.id,
@@ -172,11 +205,21 @@ final class Playback {
     }
 
     /// Same, for a whole album or playlist, where only a name is known upfront.
-    func play(context: Payload, title: String, artwork: URL? = nil) {
+    func play(context: Payload, title: String, artwork: URL? = nil,
+              shuffled: Bool = false) {
         pending = NowPlaying(trackID: context.id, title: title,
                              artist: "", artworkURL: artwork, duration: 0)
+        watchForStall()
         Task {
-            try? await active.play(id: context.id, kind: context.type)
+            // Shuffle travels with the request rather than being set just
+            // before it: applied separately it lands on the queue being
+            // replaced, and the new one plays in order.
+            if let engine = active as? WebKitEngine {
+                try? await engine.play(id: context.id, kind: context.type, shuffled: shuffled)
+            } else {
+                if shuffled { active.setShuffle(true) }
+                try? await active.play(id: context.id, kind: context.type)
+            }
             try? await Task.sleep(for: .seconds(30))
             if active.nowPlaying != nil { pending = nil }
         }
