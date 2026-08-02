@@ -99,25 +99,91 @@ final class ScoreAI {
 
     // MARK: Recognition
 
+    // MARK: Saved scores
+
     /// A score already read for this recording, if any.
     ///
     /// Recognition takes minutes of CPU. Doing it twice for the same recording
     /// would be the app wasting the user's machine on work it already did.
+    ///
+    /// Kept in Application Support rather than Caches. That is the difference
+    /// between a convenience and a possession: a cache is the system's to
+    /// delete whenever it wants space, and a score the listener sat through
+    /// four minutes of recognition for — or scanned themselves — is theirs.
     func cached(for trackID: String) -> String? {
-        try? String(contentsOf: cacheURL(trackID), encoding: .utf8)
+        try? String(contentsOf: scoreURL(trackID), encoding: .utf8)
     }
 
-    func store(_ musicXML: String, for trackID: String) {
-        let url = cacheURL(trackID)
+    func hasScore(for trackID: String) -> Bool {
+        FileManager.default.fileExists(atPath: scoreURL(trackID).path)
+    }
+
+    func store(_ musicXML: String, for trackID: String, title: String) {
+        let url = scoreURL(trackID)
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? musicXML.write(to: url, atomically: true, encoding: .utf8)
+        guard (try? musicXML.write(to: url, atomically: true, encoding: .utf8)) != nil
+        else { return }
+
+        var names = savedNames
+        names[trackID] = title
+        savedNames = names
+        saved = savedScores()
     }
 
-    private func cacheURL(_ trackID: String) -> URL {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    func forget(trackID: String) {
+        try? FileManager.default.removeItem(at: scoreURL(trackID))
+        var names = savedNames
+        names[trackID] = nil
+        savedNames = names
+        saved = savedScores()
+    }
+
+    /// What has been saved, for the settings panel. Recognised once and kept
+    /// forever is only reassuring if the user can see it and undo it.
+    private(set) var saved: [(id: String, title: String)] = []
+
+    func refreshSaved() { saved = savedScores() }
+
+    private func savedScores() -> [(id: String, title: String)] {
+        let names = savedNames
+        return (try? FileManager.default.contentsOfDirectory(
+            at: scoresDirectory, includingPropertiesForKeys: nil))?
+            .filter { $0.pathExtension == "musicxml" }
+            .map { url in
+                let id = url.deletingPathExtension().lastPathComponent
+                return (id, names[id] ?? id)
+            }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            ?? []
+    }
+
+    func totalSavedBytes() -> Int64 {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: scoresDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        return files.reduce(0) { total, url in
+            total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
+    private var savedNames: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.namesKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.namesKey) }
+    }
+
+    private static let namesKey = "cadenza.scoreAI.saved"
+
+    private var scoresDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("Cadenza/scores-ai/\(trackID).musicxml")
+        let directory = base.appendingPathComponent("Cadenza/partituras", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func scoreURL(_ trackID: String) -> URL {
+        scoresDirectory.appendingPathComponent("\(trackID).musicxml")
     }
 
     /// Reads an engraving and returns MusicXML, or nil.

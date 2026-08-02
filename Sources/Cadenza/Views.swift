@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 struct RootView: View {
     @State private var model = AppModel()
     @State private var showingLogin = false
+    @State private var expanded = false
 
     var body: some View {
         NavigationSplitView {
@@ -20,11 +21,17 @@ struct RootView: View {
         } detail: {
             VStack(spacing: 0) {
                 ScreenView(model: model)
-                NowPlayingBar()
+                // What the app is doing, when it is doing something slow. The
+                // player itself is in the title bar now, where Apple puts it.
+                StatusStrip()
             }
             .overlay(alignment: .bottomLeading) {
                 EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
             }
+            .overlay {
+                if expanded { NowPlayingScreen(expanded: $expanded) }
+            }
+            .animation(.snappy(duration: 0.28), value: expanded)
             // A write that succeeds silently is indistinguishable from one that
             // failed silently, so every one of them says what it did.
             .overlay(alignment: .top) {
@@ -55,29 +62,44 @@ struct RootView: View {
                 .help("Voltar")
             }
 
-            ToolbarItem(placement: .primaryAction) {
-                if model.current?.path == LocalRoute.path {
-                    Button {
-                        LocalLibrary.shared.promptForFiles()
-                    } label: {
-                        Label("Importar", systemImage: "plus")
-                    }
-                    .help("Importar arquivos de música deste Mac")
-                }
-            }
+            // The arrangement Apple Music uses: transport at the left of the
+            // title bar, the display centred, everything else at the right.
+            ToolbarItem(placement: .navigation) { TransportControls() }
 
+            ToolbarItem(placement: .principal) { PlayerLCD(expanded: $expanded) }
+
+            // One item, not four. Declared separately, the toolbar treats each
+            // as droppable and folds them into the "»" overflow the moment the
+            // window is anything less than very wide — which is where the
+            // lyrics, score and queue buttons went.
             ToolbarItem(placement: .primaryAction) {
-                if let context = model.playableContext {
-                    Button {
-                        Playback.shared.play(context: context,
-                                             title: model.current?.name ?? "")
-                    } label: {
-                        Label("Reproduzir", systemImage: "play.fill")
+                HStack(spacing: 12) {
+                    if let context = model.playableContext {
+                        Button {
+                            Playback.shared.play(context: context,
+                                                 title: model.current?.name ?? "")
+                        } label: {
+                            Image(systemName: "play.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reproduzir tudo")
                     }
-                    .help("Reproduzir tudo")
+                    if model.current?.path == LocalRoute.path {
+                        Button {
+                            LocalLibrary.shared.promptForFiles()
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Importar arquivos de música deste Mac")
+                    }
+                    PlayerExtras()
                 }
             }
         }
+        // The page names itself in its own header. Repeating it in the title
+        // bar only crowded the player, and Music does not do it either.
+        .navigationTitle("")
         .task {
             if model.needsLogin {
                 showingLogin = true
@@ -245,6 +267,7 @@ struct Sidebar: View {
 
 struct ScreenView: View {
     let model: AppModel
+    @State private var droppingHere = false
 
     var body: some View {
         Group {
@@ -261,27 +284,15 @@ struct ScreenView: View {
                         TrackListView(page: page, extra: model.extraItems,
                                       loadingMore: model.isLoadingMore, model: model)
                     }
+                } else if screen.screenType == LocalRoute.screenType,
+                          let page = screen.firstPage, page.isEmptyState {
+                    LocalEmptyState(heading: page.heading ?? "Nenhum arquivo importado",
+                                    description: page.description ?? "")
                 } else if screen.sections.isEmpty, let page = screen.firstPage {
-                    ContentUnavailableView {
-                        Label(page.heading ?? screen.title ?? "Vazio",
-                              systemImage: screen.screenType == LocalRoute.screenType
-                                ? "internaldrive" : "music.note.list")
-                    } description: {
-                        Text(page.description ?? "")
-                    } actions: {
-                        if screen.screenType == LocalRoute.screenType {
-                            Button("Importar músicas…") {
-                                LocalLibrary.shared.promptForFiles()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            Text("MP3, AAC, ALAC, FLAC, WAV, AIFF, CAF, Ogg e mais. "
-                                 + "Cada arquivo é testado ao importar; o que este "
-                                 + "Mac não decodificar é informado.")
-                                .font(.caption).foregroundStyle(.tertiary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: 380)
-                        }
-                    }
+                    ContentUnavailableView(
+                        page.heading ?? screen.title ?? "Vazio",
+                        systemImage: "music.note.list",
+                        description: Text(page.description ?? ""))
                 } else {
                     VStack(spacing: 0) {
                         if let header = screen.header, header.isDecorative {
@@ -298,7 +309,11 @@ struct ScreenView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(model.screen?.title ?? model.current?.name ?? "Cadenza")
+        // Dropping onto the populated list works too, not just the empty state.
+        .localMusicDrop(isTargeted: $droppingHere)
+        // No page title in the title bar: the screen already names itself in
+        // its own header, and repeating it there shoved the player off centre.
+        .navigationTitle("")
         .overlay(alignment: .top) {
             if model.isLoading && model.screen != nil {
                 ProgressView().controlSize(.small).padding(6)
@@ -335,6 +350,110 @@ struct ScreenView: View {
             }
             .padding(.vertical, 20)
         }
+    }
+}
+
+/// The local library before anything is in it.
+///
+/// Written by hand rather than with `ContentUnavailableView` because that view
+/// lays its actions out in a row: the button and the note about formats ended
+/// up side by side, which put the button off-centre and buried the note next
+/// to it. The button belongs under the sentence it answers, and the small
+/// print belongs at the bottom.
+struct LocalEmptyState: View {
+    let heading: String
+    let description: String
+
+    @State private var targeted = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            Image(systemName: targeted ? "square.and.arrow.down" : "internaldrive")
+                .font(.system(size: 46, weight: .light))
+                .foregroundStyle(targeted ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                .padding(.bottom, 18)
+
+            Text(targeted ? "Solte para importar" : heading)
+                .font(.cadenzaTitle(24))
+                .padding(.bottom, 8)
+
+            Text(description)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+                .padding(.bottom, 20)
+
+            Button("Importar músicas…") { LocalLibrary.shared.promptForFiles() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+            Text("…ou arraste arquivos e pastas para esta janela.")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 10)
+
+            Spacer()
+
+            Text("MP3, AAC, ALAC, FLAC, WAV, AIFF, CAF, Ogg e mais. Cada arquivo é "
+                 + "testado ao importar; o que este Mac não decodificar é informado.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+                .padding(.bottom, 18)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .overlay {
+            if targeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.tint, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                    .padding(14)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: targeted)
+        .localMusicDrop(isTargeted: $targeted)
+    }
+}
+
+/// Accepts audio files dropped anywhere on the view.
+///
+/// Offered on the whole library screen, not only the empty state: dragging a
+/// folder in is the fastest way to add music, and it should keep working once
+/// there is already something there.
+struct LocalMusicDrop: ViewModifier {
+    @Binding var isTargeted: Bool
+
+    func body(content: Content) -> some View {
+        content.onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+            Task {
+                var urls: [URL] = []
+                for provider in providers {
+                    guard let item = try? await provider.loadItem(
+                        forTypeIdentifier: "public.file-url") else { continue }
+                    // A dropped file arrives either as bytes holding the URL
+                    // string or as the URL itself, depending on the source.
+                    if let data = item as? Data,
+                       let url = URL(dataRepresentation: data, relativeTo: nil) {
+                        urls.append(url)
+                    } else if let url = item as? URL {
+                        urls.append(url)
+                    }
+                }
+                guard !urls.isEmpty else { return }
+                await LocalLibrary.shared.importItems(urls)
+            }
+            return true
+        }
+    }
+}
+
+extension View {
+    func localMusicDrop(isTargeted: Binding<Bool>) -> some View {
+        modifier(LocalMusicDrop(isTargeted: isTargeted))
     }
 }
 
@@ -667,193 +786,45 @@ struct TrackRow: View {
 
 // MARK: - Now playing
 
-/// The transport. It also states the engine's ceiling when the recording on
-/// offer is better than what this engine can deliver — the honest alternative
-/// to implying a quality the app cannot produce.
-struct NowPlayingBar: View {
-    private var engine: any Player { Playback.shared.active }
-    @State private var showingScore = false
-    @State private var showingLyrics = false
-    @State private var showingQueue = false
+/// A thin strip for what the app is doing, under the content.
+///
+/// The player itself moved to the title bar, where Apple Music keeps it. What
+/// remains here is the two things that need a whole line to say: that a click
+/// is being worked on, and that the score engine is grinding through a page.
+struct StatusStrip: View {
     @State private var ai = ScoreAI.shared
 
     var body: some View {
-        if let track = Playback.shared.displayed {
-            Divider()
+        VStack(spacing: 0) {
             if let hint = Playback.shared.hint {
-                HStack(spacing: 7) {
-                    Image(systemName: "info.circle")
-                    Text(hint).font(.callout)
-                    Spacer()
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16).padding(.vertical, 7)
-                .background(.quaternary.opacity(0.5))
+                line(icon: "info.circle", text: hint, working: false)
             }
-            // Recognition takes minutes, and choosing the file closes the score
-            // panel that was showing its progress — so the only place left to
-            // say anything was here. Without it the app looks idle while it is
-            // saturating four cores.
+            // Recognition takes minutes, and choosing the file closes the panel
+            // that was showing its progress — so without this the app looks
+            // idle while it saturates four cores.
             if case .working(let step) = ai.state {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("Partitura por IA — \(step)").font(.callout)
-                    Spacer()
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16).padding(.vertical, 7)
-                .background(.quaternary.opacity(0.5))
+                line(icon: nil, text: "Partitura por IA — " + step, working: true)
             }
-            // The scrubber sits above the controls, full width, the way a
-            // player is expected to work.
-            Scrubber()
-            HStack(spacing: 14) {
-                AsyncImage(url: track.artworkURL) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.quaternary)
-                        .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
-                }
-                .frame(width: 42, height: 42)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay {
-                    if Playback.shared.isPreparing {
-                        ZStack {
-                            Color.black.opacity(0.45)
-                            ProgressView().controlSize(.small)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(track.title).font(.callout).lineLimit(1)
-                    if Playback.shared.isPreparing {
-                        Text("Carregando…").font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 16)
-
-                if track.duration > 0 {
-                    Text("\(clock(engine.position)) / \(clock(track.duration))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(engine.ceiling.rawValue)
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
-                    .help(engine.ceiling.isLossless
-                          ? "Reproduzindo sem perdas"
-                          : "Este motor é limitado a 256 kbps AAC")
-
-                Button {
-                    Favourites.shared.toggle(id: track.trackID,
-                                             current: Favourites.shared.isFavourite(id: track.trackID))
-                } label: {
-                    Image(systemName: Favourites.shared.isFavourite(id: track.trackID)
-                          ? "star.fill" : "star")
-                        .foregroundStyle(Favourites.shared.isFavourite(id: track.trackID)
-                                         ? .yellow : .secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Favoritar")
-
-                Button {
-                    showingLyrics.toggle()
-                } label: {
-                    Image(systemName: "captions.bubble")
-                }
-                .buttonStyle(.plain)
-                .help("Legenda")
-                .popover(isPresented: $showingLyrics, arrowEdge: .top) {
-                    LyricsPanel().frame(width: 440, height: 400)
-                }
-
-                Button {
-                    showingScore.toggle()
-                } label: {
-                    Image(systemName: "music.quarternote.3")
-                }
-                .buttonStyle(.plain)
-                .help("Partitura")
-                .popover(isPresented: $showingScore, arrowEdge: .top) {
-                    ScorePanel().frame(width: 820, height: 620)
-                }
-
-                Button {
-                    showingQueue.toggle()
-                } label: {
-                    Image(systemName: "list.bullet")
-                }
-                .buttonStyle(.plain)
-                .help("A seguir")
-                .popover(isPresented: $showingQueue, arrowEdge: .top) {
-                    QueueList().frame(width: 340, height: 380)
-                }
-
-                SleepTimerMenu()
-
-                if engine.supportsVolume {
-                    HStack(spacing: 5) {
-                        Image(systemName: engine.volume == 0
-                              ? "speaker.slash.fill" : "speaker.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Slider(value: Binding(get: { engine.volume },
-                                              set: { engine.setVolume($0) }),
-                               in: 0...1)
-                            .controlSize(.mini)
-                            .frame(width: 70)
-                    }
-                }
-
-                HStack(spacing: 14) {
-                    Button { engine.setShuffle(!engine.shuffle) } label: {
-                        Image(systemName: "shuffle")
-                            .foregroundStyle(engine.shuffle ? AnyShapeStyle(.tint)
-                                             : AnyShapeStyle(.secondary))
-                    }
-                    .help(engine.shuffle ? "Aleatório ligado" : "Aleatório desligado")
-
-                    Button { engine.skipBackward() } label: {
-                        Image(systemName: "backward.fill")
-                    }
-                    Button { engine.togglePlayPause() } label: {
-                        Image(systemName: engine.status == .playing ? "pause.fill" : "play.fill")
-                            .frame(width: 16)
-                    }
-                    Button { engine.skipForward() } label: {
-                        Image(systemName: "forward.fill")
-                    }
-
-                    Button { engine.setRepeat(engine.repeatMode.next) } label: {
-                        Image(systemName: engine.repeatMode.symbol)
-                            .foregroundStyle(engine.repeatMode == .off
-                                             ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
-                    }
-                    .help(engine.repeatMode.label)
-                }
-                .buttonStyle(.plain)
-                .font(.title3)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.bar)
         }
     }
 
-    private func clock(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
+    private func line(icon: String?, text: String, working: Bool) -> some View {
+        HStack(spacing: 7) {
+            if working {
+                ProgressView().controlSize(.small)
+            } else if let icon {
+                Image(systemName: icon)
+            }
+            Text(text).font(.callout)
+            Spacer()
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16).padding(.vertical, 7)
+        .background(.quaternary.opacity(0.5))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
+
 
 // MARK: - Screen header
 
@@ -1649,9 +1620,13 @@ struct ScorePanel: View {
         panel.message = "Escolha um PDF ou imagem da partitura"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let track = engine.nowPlaying?.trackID
+        let name = engine.nowPlaying?.title ?? url.deletingPathExtension().lastPathComponent
         Task {
             if let xml = await ScoreAI.shared.generate(from: url) {
-                if let track { ScoreAI.shared.store(xml, for: track) }
+                // Saved against the recording, so the next time this track
+                // plays the score is simply there. Four minutes of recognition
+                // should happen once, not once per listen.
+                if let track { ScoreAI.shared.store(xml, for: track, title: name) }
                 musicXML = xml
                 match = nil
             }
@@ -2037,8 +2012,41 @@ struct ScoreAISection: View {
             }
 
             if enabled { engineControls }
+
+            if !ai.saved.isEmpty {
+                Divider().padding(.vertical, 4)
+                Text("Partituras guardadas")
+                    .font(.headline)
+                Text("Lidas uma vez e mantidas. Da próxima vez que a gravação tocar, "
+                     + "a partitura já está aqui — nada é reconhecido de novo.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(ai.saved, id: \.id) { entry in
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text.fill").foregroundStyle(.tint)
+                        Text(entry.title).lineLimit(1)
+                        Spacer()
+                        Button("Apagar") { ai.forget(trackID: entry.id) }
+                            .buttonStyle(.link)
+                    }
+                    .font(.callout)
+                }
+
+                Text(Self.size(ai.totalSavedBytes()))
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
         }
-        .task { ai.refreshState() }
+        .task {
+            ai.refreshState()
+            ai.refreshSaved()
+        }
+    }
+
+    private static func size(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        return "Ocupando \(formatter.string(fromByteCount: bytes)) em Suporte a Aplicativos."
     }
 
     @ViewBuilder
