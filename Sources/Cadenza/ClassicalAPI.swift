@@ -54,7 +54,15 @@ actor ClassicalAPI {
     /// `action.url` of an item, which is the same thing.
     func screen(at path: String) async throws -> Screen {
         let data = try await get(path)
+        await ScreenCache.shared.store(data, for: path)
         return try JSONDecoder().decode(Screen.self, from: data)
+    }
+
+    /// The cached copy, if any. Returned without touching the network so a
+    /// screen can render before the request even goes out.
+    func cachedScreen(at path: String) async -> Screen? {
+        guard let data = await ScreenCache.shared.data(for: path) else { return nil }
+        return try? JSONDecoder().decode(Screen.self, from: data)
     }
 
     func listenNow() async throws -> Screen {

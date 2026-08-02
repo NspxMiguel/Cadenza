@@ -213,9 +213,19 @@ final class AppModel {
 
     func reload() async {
         guard let path = current?.path else { return }
-        isLoading = true
         error = nil
+
+        // Stale-while-revalidate: show what we already have, then refresh
+        // behind it. A spinner appears only when there is nothing to show.
+        if let cached = await ClassicalAPI.shared.cachedScreen(at: path) {
+            screen = cached
+            isLoading = false
+        } else {
+            screen = nil
+            isLoading = true
+        }
         defer { isLoading = false }
+
         do {
             if path == LibraryRoute.playlists {
                 screen = try await LibraryAPI.shared.playlistsScreen()
@@ -227,8 +237,8 @@ final class AppModel {
                 screen = try await ClassicalAPI.shared.screen(at: path)
             }
         } catch {
-            self.error = error.localizedDescription
-            screen = nil
+            // A failed refresh must not wipe a screen that is already readable.
+            if screen == nil { self.error = error.localizedDescription }
         }
     }
 }

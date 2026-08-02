@@ -397,8 +397,16 @@ struct TrackRow: View {
 
             Spacer(minLength: 12)
 
-            if item.inFavorites == true {
-                Image(systemName: "star.fill").font(.caption2).foregroundStyle(.secondary)
+            if item.playable != nil, hovering || Favourites.shared.isFavourite(item) {
+                Button {
+                    Favourites.shared.toggle(item)
+                } label: {
+                    Image(systemName: Favourites.shared.isFavourite(item) ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundStyle(Favourites.shared.isFavourite(item) ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Favoritar")
             }
             if let duration = item.duration {
                 Text(duration)
@@ -454,6 +462,18 @@ struct NowPlayingBar: View {
                     .help(engine.ceiling.isLossless
                           ? "Reproduzindo sem perdas"
                           : "Este motor é limitado a 256 kbps AAC")
+
+                Button {
+                    Favourites.shared.toggle(id: track.trackID,
+                                             current: Favourites.shared.isFavourite(id: track.trackID))
+                } label: {
+                    Image(systemName: Favourites.shared.isFavourite(id: track.trackID)
+                          ? "star.fill" : "star")
+                        .foregroundStyle(Favourites.shared.isFavourite(id: track.trackID)
+                                         ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Favoritar")
 
                 Button {
                     showingLyrics.toggle()
@@ -736,23 +756,127 @@ struct SettingsView: View {
             }
 
             if playback.losslessAvailable {
-                Label("Lossless disponível neste build.", systemImage: "checkmark.seal.fill")
+                Label("Lossless ativo neste build.", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(.green)
             } else {
+                LosslessSetupSection()
+            }
+
+            Divider().padding(.vertical, 4)
+            CacheSection()
+        }
+        .formStyle(.grouped)
+        .frame(width: 520)
+        .padding()
+    }
+}
+
+// MARK: - Lossless setup
+
+/// The tutorial and the button, in the place where the limitation is felt.
+struct LosslessSetupSection: View {
+    @State private var setup = LosslessSetup.shared
+    @State private var selected: LosslessSetup.Identity?
+    @State private var showingLog = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Lossless indisponível neste build", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+
+            Text("Lossless e Spatial Audio exigem a entitlement MusicKit, que só o "
+                 + "Apple Developer Program (US$ 99/ano) concede. Uma conta gratuita não "
+                 + "registra Mac como device, então nem chega a emitir o perfil.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if setup.identities.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Lossless indisponível", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    if let reason = playback.losslessDiagnosis {
-                        Text(reason)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                    step(1, "Assine o Apple Developer Program em developer.apple.com.")
+                    step(2, "Abra o Xcode e entre com o Apple ID em Settings ▸ Accounts.")
+                    step(3, "Clique em Verificar novamente abaixo.")
+                }
+                .padding(.top, 2)
+
+                Button("Verificar novamente") { setup.refreshIdentities() }
+            } else {
+                Picker("Assinar com", selection: $selected) {
+                    ForEach(setup.identities) { identity in
+                        Text(identity.name).tag(Optional(identity))
                     }
+                }
+
+                Text("O Cadenza baixa o próprio código, compila com a sua conta e "
+                     + "instala em ~/Applications. Depois é só reabrir.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Button(setup.isRunning ? "Compilando…" : "Compilar com MusicKit") {
+                        if let identity = selected ?? setup.identities.first {
+                            setup.build(with: identity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!setup.canRun)
+
+                    if !setup.log.isEmpty {
+                        Button(showingLog ? "Ocultar log" : "Ver log") { showingLog.toggle() }
+                            .buttonStyle(.link)
+                    }
+                }
+
+                if setup.finished == true {
+                    Label("Pronto. Feche e abra o Cadenza para usar lossless.",
+                          systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else if setup.finished == false {
+                    Label("A compilação falhou — veja o log.",
+                          systemImage: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                }
+
+                if showingLog {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(setup.log.enumerated()), id: \.offset) { _, line in
+                                Text(line).font(.system(.caption2, design: .monospaced))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 130)
                 }
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 460)
-        .padding()
+        .task { setup.refreshIdentities() }
+    }
+
+    private func step(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text("\(number).").font(.callout.monospacedDigit()).foregroundStyle(.tertiary)
+            Text(text).font(.callout)
+        }
+    }
+}
+
+// MARK: - Cache
+
+struct CacheSection: View {
+    @State private var size: Int64 = 0
+
+    var body: some View {
+        LabeledContent("Cache de telas") {
+            HStack(spacing: 10) {
+                Text(size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "vazio")
+                    .foregroundStyle(.secondary)
+                Button("Limpar") {
+                    Task { await ScreenCache.shared.clear(); size = await ScreenCache.shared.size() }
+                }
+            }
+        }
+        .task { size = await ScreenCache.shared.size() }
     }
 }

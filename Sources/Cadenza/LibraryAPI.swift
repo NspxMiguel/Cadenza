@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// The user's own Apple Music library.
 ///
@@ -126,5 +127,62 @@ actor LibraryAPI {
         }
         let id: String
         let attributes: Attributes?
+    }
+}
+
+// MARK: - Favourites
+
+/// Loving a track is a rating in Apple Music's vocabulary: value 1 on
+/// `/me/ratings`. The classical context menu does not expose it — its response
+/// carries only sharing and navigation — so this goes through the standard API.
+@MainActor
+@Observable
+final class Favourites {
+    static let shared = Favourites()
+
+    /// Local overlay on top of what the catalog reported, so a star flips the
+    /// moment it is pressed instead of after a refetch.
+    private var overrides: [String: Bool] = [:]
+
+    func isFavourite(_ item: Item) -> Bool {
+        if let id = item.playable?.id, let override = overrides[id] { return override }
+        return item.inFavorites ?? false
+    }
+
+    func isFavourite(id: String, fallback: Bool = false) -> Bool {
+        overrides[id] ?? fallback
+    }
+
+    func toggle(_ item: Item) {
+        guard let id = item.playable?.id else { return }
+        let next = !isFavourite(item)
+        overrides[id] = next
+        Task { await Self.push(id: id, favourite: next) }
+    }
+
+    func toggle(id: String, current: Bool) {
+        let next = !current
+        overrides[id] = next
+        Task { await Self.push(id: id, favourite: next) }
+    }
+
+    private static func push(id: String, favourite: Bool) async {
+        guard let creds = TokenStore.shared.credentials,
+              let url = URL(string: "https://amp-api.music.apple.com/v1/me/ratings/songs/\(id)")
+        else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = favourite ? "PUT" : "DELETE"
+        request.setValue("Bearer \(creds.developerToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(creds.musicUserToken, forHTTPHeaderField: "Music-User-Token")
+        request.setValue("https://music.apple.com", forHTTPHeaderField: "Origin")
+
+        if favourite {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(
+                withJSONObject: ["type": "rating", "attributes": ["value": 1]])
+        }
+
+        _ = try? await URLSession.shared.data(for: request)
     }
 }
