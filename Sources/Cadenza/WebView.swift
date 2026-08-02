@@ -142,6 +142,11 @@ struct ClassicalWebView: NSViewRepresentable {
                     probe.record("tokens obtidos [\(sources)] user-token=\(hasUser ? "sim" : "não")",
                                  good: hasUser)
 
+                case "stream":
+                    let url = body["url"] as? String ?? ""
+                    StreamLog.shared.append(url)
+                    probe.record("stream: \(URL(string: url)?.lastPathComponent ?? "?")")
+
                 case "net":
                     let method = body["method"] as? String ?? "GET"
                     let url = body["url"] as? String ?? ""
@@ -264,6 +269,12 @@ extension ClassicalWebView {
         return /amp-api|api\.music\.apple\.com|classical\.music\.apple\.com\/api/.test(u);
       };
 
+      // Playlists/manifests only — segments would flood the log and tell us
+      // nothing the manifest doesn't already state in its CODECS attribute.
+      var isManifest = function (u) {
+        return /\.m3u8|aod[\w-]*\.itunes\.apple\.com|audio-ssl\.itunes/.test(u);
+      };
+
       var origFetch = window.fetch;
       if (origFetch) {
         window.fetch = function (input, init) {
@@ -290,6 +301,7 @@ extension ClassicalWebView {
         var report = function (entries) {
           entries.forEach(function (e) {
             if (interesting(e.name)) send({ type: 'net', method: 'RES', url: e.name });
+            else if (isManifest(e.name)) send({ type: 'stream', url: e.name });
           });
         };
         report(performance.getEntriesByType('resource'));

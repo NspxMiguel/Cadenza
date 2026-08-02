@@ -70,3 +70,28 @@ native client can render the tree and follow actions without hardcoding screens.
 this traffic. Wrapping `fetch`/`XMLHttpRequest` in the page misses nearly
 everything, because the player routes calls through a
 `includes/commerce/fetch-proxy.html` iframe.
+
+## Audio quality
+
+Album screens carry an `audioTraits` array, e.g. `["lossless", "lossy-stereo"]`,
+alongside an `appleDigitalMasters` badge item. So the catalog knows which
+recordings are lossless and a client can surface that.
+
+Delivering it is another matter. Apple's **web player is capped at 256 kbps AAC** —
+lossless, Hi-Res and Spatial Audio are native-app only. The manifest observed
+during playback (`mzaf_*.cphq.aac.wa.m3u8`) is consistent with that cap.
+
+This is a hard ceiling on any WebKit-hosted engine, Cider included. Classical
+tracks are ordinary Apple Music catalog tracks, so the way past it is to browse
+with `v10` and play with native MusicKit (`ApplicationMusicPlayer`), which
+requires the MusicKit capability and therefore a paid developer account.
+
+## Routes found in the iOS binary
+
+Not reachable by crawling, but present in `ClassicalCore`/`ClassicalApi`:
+
+`query/view/browse`, `query/view/browse-search`, `query/view/favorites`,
+`query/default-playable/`, `query/promo-config`, `query/appIntegrityChallenge`.
+
+That last one is an attestation endpoint. It is not currently enforced on the
+endpoints used here — they answer 200 without it — but it is a standing risk.

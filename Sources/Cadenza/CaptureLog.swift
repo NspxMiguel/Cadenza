@@ -2,18 +2,26 @@ import Foundation
 
 /// Appends every observed Apple endpoint to a file, so the API surface of the
 /// classical catalog can be studied offline and replayed from native code.
+/// Playback manifests, kept apart from the API log. Their CODECS attribute is
+/// what actually settles whether WebKit is a ceiling on audio quality.
+final class StreamLog: @unchecked Sendable {
+    static let shared = StreamLog()
+    private let inner = CaptureLog(name: "streams.txt")
+    func append(_ line: String) { inner.append(line) }
+}
+
 final class CaptureLog: @unchecked Sendable {
-    static let shared = CaptureLog()
+    static let shared = CaptureLog(name: "endpoints.txt")
 
     private let queue = DispatchQueue(label: "cadenza.capture")
     private var seen = Set<String>()
     private let url: URL
 
-    private init() {
+    init(name: String) {
         let dir = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Documents/Claude/Cadenza/capture", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        url = dir.appendingPathComponent("endpoints.txt")
+        url = dir.appendingPathComponent(name)
     }
 
     func append(_ line: String) {
