@@ -18,13 +18,23 @@ final class TokenStore: @unchecked Sendable {
         url = dir.appendingPathComponent("tokens.json")
     }
 
-    func save(_ payload: [String: Any]) {
-        guard JSONSerialization.isValidJSONObject(payload),
-              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
-        else { return }
-        try? data.write(to: url)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    private let queue = DispatchQueue(label: "cadenza.tokens")
+    private var current: [String: Any] = [:]
+
+    /// Merges, because the two credentials arrive from different places: the
+    /// developer token from the page, the user token from an HttpOnly cookie.
+    func merge(_ payload: [String: Any]) {
+        queue.async { [self] in
+            for (k, v) in payload { current[k] = v }
+            guard JSONSerialization.isValidJSONObject(current),
+                  let data = try? JSONSerialization.data(withJSONObject: current, options: [.prettyPrinted])
+            else { return }
+            try? data.write(to: url)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
     }
+
+    var hasUserToken: Bool { queue.sync { current["musicUserToken"] != nil } }
 }
 
 extension ClassicalWebView {

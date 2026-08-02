@@ -136,7 +136,7 @@ struct ClassicalWebView: NSViewRepresentable {
                 case "tokens":
                     var payload = body
                     payload.removeValue(forKey: "type")
-                    TokenStore.shared.save(payload)
+                    TokenStore.shared.merge(payload)
                     let sources = (body["sources"] as? [String] ?? []).joined(separator: ", ")
                     let hasUser = (body["musicUserToken"] as? String)?.isEmpty == false
                     probe.record("tokens obtidos [\(sources)] user-token=\(hasUser ? "sim" : "não")",
@@ -165,6 +165,32 @@ struct ClassicalWebView: NSViewRepresentable {
             guard let comps = URLComponents(string: url), let path = comps.path.isEmpty ? nil : comps.path
             else { return String(url.prefix(70)) }
             return path
+        }
+
+        /// The Music-User-Token lives in an HttpOnly cookie, so the injected
+        /// script can never see it. Native code can.
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                var found: [String: Any] = [:]
+                for cookie in cookies {
+                    switch cookie.name {
+                    case "media-user-token":
+                        found["musicUserToken"] = cookie.value
+                    case "itua":
+                        found["storefront"] = cookie.value.lowercased()
+                    default:
+                        break
+                    }
+                }
+                guard !found.isEmpty else { return }
+                TokenStore.shared.merge(found)
+
+                Task { @MainActor in
+                    if found["musicUserToken"] != nil {
+                        self.probe.record("media-user-token obtido do cookie store", good: true)
+                    }
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
