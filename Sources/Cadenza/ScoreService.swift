@@ -30,12 +30,36 @@ actor ScoreService {
 
     private var index: [Entry]?
 
+    private var cacheDirectory: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let directory = base.appendingPathComponent("Cadenza/scores", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
     // MARK: Index
 
     /// The corpus layout is `scores/<Composer>/<Work>/<Movement>/<id>.mxl`, so
     /// one tree request is enough to know everything available.
     private func loadIndex() async -> [Entry] {
         if let index { return index }
+
+        // The two corpus trees weigh about three megabytes together and change
+        // rarely, so refetching them on every launch was the single largest
+        // cost in this whole feature. Kept on disk for a week instead.
+        let cache = cacheDirectory.appendingPathComponent("index.json")
+        if let data = try? Data(contentsOf: cache),
+           let modified = try? cache.resourceValues(forKeys: [.contentModificationDateKey])
+               .contentModificationDate,
+           Date().timeIntervalSince(modified) < 7 * 24 * 3600,
+           let stored = try? JSONDecoder().decode([StoredEntry].self, from: data) {
+            let entries = stored.map {
+                Entry(path: $0.path, composer: $0.composer, work: $0.work, movement: $0.movement)
+            }
+            index = entries
+            return entries
+        }
 
         var entries: [Entry] = []
         for repo in ["OpenScore/Lieder", "OpenScore/StringQuartets"] {
@@ -60,7 +84,20 @@ actor ScoreService {
         }
 
         index = entries
+        let stored = entries.map {
+            StoredEntry(path: $0.path, composer: $0.composer, work: $0.work, movement: $0.movement)
+        }
+        if let data = try? JSONEncoder().encode(stored) {
+            try? data.write(to: cacheDirectory.appendingPathComponent("index.json"))
+        }
         return entries
+    }
+
+    private struct StoredEntry: Codable {
+        let path: String
+        let composer: String
+        let work: String
+        let movement: String
     }
 
     private struct Tree: Decodable {
@@ -134,11 +171,19 @@ actor ScoreService {
         return words.contains { $0.hasPrefix(token) }
     }
 
-    /// Downloads and unpacks the compressed MusicXML.
+    /// Downloads and unpacks the compressed MusicXML, once. Reopening the panel
+    /// on the same piece should not fetch and unzip it again.
     func musicXML(for match: Match) async -> String? {
-        guard let (data, _) = try? await URLSession.shared.data(from: match.downloadURL)
-        else { return nil }
-        return Self.unzipMXL(data)
+        let key = String(abs(match.downloadURL.absoluteString.hashValue), radix: 36)
+        let cache = cacheDirectory.appendingPathComponent("\(key).musicxml")
+        if let cached = try? String(contentsOf: cache, encoding: .utf8), !cached.isEmpty {
+            return cached
+        }
+
+        guard let (data, _) = try? await URLSession.shared.data(from: match.downloadURL),
+              let xml = Self.unzipMXL(data) else { return nil }
+        try? xml.write(to: cache, atomically: true, encoding: .utf8)
+        return xml
     }
 
     // MARK: Helpers

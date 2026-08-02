@@ -44,6 +44,12 @@ struct ScoreView: NSViewRepresentable {
 
         guard duration > 0 else { return }
         let elapsed = max(0, position + offset)
+
+        // SwiftUI redraws far more often than once a second, and each redraw
+        // was crossing into JavaScript to move a highlight that had not moved.
+        guard abs(elapsed - coordinator.lastSeek) >= 0.4 else { return }
+        coordinator.lastSeek = elapsed
+
         webView.evaluateJavaScript(
             "window.cadenzaSeek(\(elapsed), \(duration))", completionHandler: nil)
     }
@@ -55,6 +61,7 @@ struct ScoreView: NSViewRepresentable {
         var loadedXML: String?
         var pendingXML: String?
         var toolkitReady = false
+        var lastSeek: TimeInterval = -1
 
         /// Written to a file rather than stderr: the app is normally started
         /// with `open`, which discards standard error, so anything logged there
