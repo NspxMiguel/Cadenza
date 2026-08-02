@@ -235,6 +235,89 @@ final class LocalLibrary {
 
     func track(id: String) -> LocalTrack? { tracks.first { $0.id == id } }
 
+    // MARK: Albums
+
+    /// Local files grouped the way they were released.
+    ///
+    /// A rip is an album before it is a pile of files, and a classical album is
+    /// the unit that matters most — a symphony spread over four files is one
+    /// thing, not four. Tracks whose tags name no album are gathered under one
+    /// heading rather than each becoming an album of one.
+    private static let looseAlbum = "Sem álbum"
+
+    func albums() -> [(name: String, tracks: [LocalTrack])] {
+        Dictionary(grouping: tracks) { track in
+            track.album.isEmpty ? Self.looseAlbum : track.album
+        }
+        .map { (name: $0.key, tracks: $0.value.sorted { $0.title < $1.title }) }
+        .sorted { a, b in
+            // The unnamed pile sits last: it is a leftover, not an album.
+            if a.name == Self.looseAlbum { return false }
+            if b.name == Self.looseAlbum { return true }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    func albumsScreen() -> Screen {
+        let groups = albums()
+        guard !groups.isEmpty else {
+            return Screen(
+                screenType: LocalRoute.albumsScreenType, title: "Álbuns locais",
+                firstPage: Page(type: "empty", items: [],
+                                heading: "Nenhum álbum local",
+                                description: "Importe arquivos com etiquetas de álbum "
+                                    + "para vê-los agrupados aqui."))
+        }
+
+        let items = groups.map { group in
+            Item(catalogID: group.name,
+                 type: "album",
+                 title: group.name,
+                 addition: performers(of: group.tracks),
+                 image: group.tracks.compactMap { artworkURL(for: $0) }.first
+                    .map { Artwork(url: $0.absoluteString) },
+                 action: Action(type: "componentScreen", screenType: "album",
+                                url: LocalRoute.album(group.name)))
+        }
+
+        return Screen(
+            screenType: LocalRoute.albumsScreenType,
+            title: "Álbuns locais",
+            sections: [ScreenSection(type: "albums", heading: "Neste Mac",
+                                     components: [Component(type: "shelf", items: items)])])
+    }
+
+    /// One local album as a track list.
+    func albumScreen(name: String) -> Screen {
+        let group = albums().first { $0.name == name }
+        let tracks = group?.tracks ?? []
+        let items = tracks.map { track in
+            Item(catalogID: track.id, type: "track", title: track.title,
+                 subtitle: track.artist,
+                 durationMs: Int(track.duration * 1000),
+                 image: artworkURL(for: track).map { Artwork(url: $0.absoluteString) },
+                 payload: Payload(id: track.id, type: LocalRoute.payloadType))
+        }
+
+        return Screen(
+            screenType: LocalRoute.screenType,
+            title: name,
+            header: Header(type: "album", title: name,
+                           subtitle: performers(of: tracks),
+                           image: tracks.compactMap { artworkURL(for: $0) }.first
+                            .map { Artwork(url: $0.absoluteString) }),
+            firstPage: Page(type: "list", items: items))
+    }
+
+    /// Who is on the record, without repeating a name once per track.
+    private func performers(of tracks: [LocalTrack]) -> String {
+        var seen: [String] = []
+        for name in tracks.map(\.artist) where !name.isEmpty && !seen.contains(name) {
+            seen.append(name)
+        }
+        return seen.prefix(3).joined(separator: ", ")
+    }
+
     // MARK: As a screen
 
     /// Mapped onto the same model the catalog uses, so the list, the transport
@@ -284,7 +367,12 @@ struct LocalTrack: Codable, Identifiable, Sendable, Hashable {
 
 enum LocalRoute {
     static let path = "cadenza-local:tracks"
+    static let albums = "cadenza-local:albums"
+    static let albumPrefix = "cadenza-local:album:"
     static let screenType = "localTracks"
+    static let albumsScreenType = "localAlbums"
+
+    static func album(_ name: String) -> String { albumPrefix + name }
     /// Marks a queue descriptor as belonging to the local engine rather than to
     /// any Apple catalog.
     static let payloadType = "cadenza-local"

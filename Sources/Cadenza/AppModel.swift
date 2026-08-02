@@ -66,7 +66,9 @@ final class AppModel {
             // exactly why it belongs here: nothing else in the app can reach
             // a recording that was never on the service.
             Destination(name: "Músicas locais", symbol: "internaldrive",
-                        path: LocalRoute.path)
+                        path: LocalRoute.path),
+            Destination(name: "Álbuns locais", symbol: "square.stack.3d.up",
+                        path: LocalRoute.albums)
         ]
         var playlistRoot: Destination?
 
@@ -269,6 +271,20 @@ final class AppModel {
     /// Músicas locais. It looked like the click had been ignored.
     private func stillWanted(_ path: String) -> Bool { current?.path == path }
 
+    /// Screens assembled from files on this Mac. They need no network, so they
+    /// render at once and have nothing to revalidate behind them.
+    private func localScreen(for path: String) -> Screen? {
+        switch path {
+        case LocalRoute.path: LocalLibrary.shared.screen()
+        case LocalRoute.albums: LocalLibrary.shared.albumsScreen()
+        default:
+            path.hasPrefix(LocalRoute.albumPrefix)
+                ? LocalLibrary.shared.albumScreen(
+                    name: String(path.dropFirst(LocalRoute.albumPrefix.count)))
+                : nil
+        }
+    }
+
     func reload() async {
         guard let path = current?.path else { return }
         error = nil
@@ -278,8 +294,8 @@ final class AppModel {
         extraItems = []
         // The local library is already in memory, so it renders at once and
         // has nothing to revalidate behind it.
-        if path == LocalRoute.path {
-            screen = LocalLibrary.shared.screen()
+        if let local = localScreen(for: path) {
+            screen = local
             isLoading = false
             return
         }

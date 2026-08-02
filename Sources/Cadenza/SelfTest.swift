@@ -106,6 +106,12 @@ enum SelfTest {
                            playable ? "sim" : "NÃO"))
             }
             if let notice = await library.notice { say("aviso: \(notice)") }
+
+            let grupos = await library.albums()
+            say("álbuns locais: \(grupos.count)")
+            for g in grupos {
+                say("  \(g.name) — \(g.tracks.count) faixa(s)")
+            }
         } else {
             say("  (defina CADENZA_SELFTEST_AUDIO para testar)")
         }
