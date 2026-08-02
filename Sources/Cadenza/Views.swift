@@ -149,7 +149,8 @@ struct ScreenView: View {
                         if let header = screen.header {
                             ScreenHeader(header: header, context: model.playableContext, model: model)
                         }
-                        TrackListView(page: page, model: model)
+                        TrackListView(page: page, extra: model.extraItems,
+                                      loadingMore: model.isLoadingMore, model: model)
                     }
                 } else if screen.sections.isEmpty, let page = screen.firstPage {
                     ContentUnavailableView(
@@ -318,13 +319,15 @@ struct ItemCard: View {
 /// second request, so rows stay deliberately plain until that lands.
 struct TrackListView: View {
     let page: Page
+    var extra: [Item] = []
+    var loadingMore = false
     let model: AppModel
 
     /// Track numbering restarts under each work, and headings are not counted —
     /// they are work titles standing above their movements, not playable rows.
     private var numbered: [(item: Item, number: Int?)] {
         var counter = 0
-        return page.items.map { item in
+        return (page.items + extra).map { item in
             guard item.isTrack else { counter = 0; return (item, nil) }
             counter += 1
             return (item, counter)
@@ -349,7 +352,17 @@ struct TrackListView: View {
             }
         }
         .listStyle(.inset)
-        .alternatingRowBackgrounds()
+        .overlay(alignment: .bottom) {
+            if loadingMore {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Carregando o restante…").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 8)
+            }
+        }
     }
 }
 
@@ -641,7 +654,7 @@ struct ScreenHeader: View {
             LinearGradient(colors: [.secondary.opacity(0.30), .secondary.opacity(0.12)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             if let initial = (header.composerName ?? header.title)?
-                .trimmingCharacters(in: .whitespaces).first {
+                .trimmingCharacters(in: .whitespaces).first, initial.isLetter {
                 Text(String(initial).uppercased())
                     .font(.system(size: 78, weight: .light, design: .serif))
                     .foregroundStyle(.secondary)
@@ -752,6 +765,7 @@ struct ArtworkPlaceholder: View {
     let item: Item
 
     private var symbol: String {
+        if isNavigation { return "square.grid.2x2" }
         switch item.type {
         case "artist": "person.fill"
         case "work": "doc.text.fill"
@@ -762,8 +776,13 @@ struct ArtworkPlaceholder: View {
         }
     }
 
+    /// A "see all" row is navigation, not an entity — an initial there reads as
+    /// the name of something that does not exist.
+    private var isNavigation: Bool { item.action?.screenType == "seeAll" }
+
     private var initial: String? {
-        guard let first = item.title?.trimmingCharacters(in: .whitespaces).first,
+        guard !isNavigation,
+              let first = item.title?.trimmingCharacters(in: .whitespaces).first,
               first.isLetter else { return nil }
         return String(first).uppercased()
     }
@@ -1088,7 +1107,10 @@ struct SectionListView: View {
     private var numbered: [(item: Item, number: Int?)] {
         var counter = 0
         return component.items.map { item in
-            guard !item.isHeading else { counter = 0; return (item, nil) }
+            guard item.isTrack else {
+                if item.isHeading { counter = 0 }
+                return (item, nil)
+            }
             counter += 1
             return (item, counter)
         }
@@ -1153,6 +1175,10 @@ struct SectionRow: View {
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.tertiary)
                     .frame(width: 42, alignment: .center)
+            } else if !item.isTrack {
+                ArtworkPlaceholder(item: item)
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
             VStack(alignment: .leading, spacing: 2) {

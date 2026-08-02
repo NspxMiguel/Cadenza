@@ -22,6 +22,9 @@ final class AppModel {
     private(set) var playlists: [Destination] = []
 
     private(set) var screen: Screen?
+    /// Rows beyond what the screen endpoint returns, fetched separately.
+    private(set) var extraItems: [Item] = []
+    private(set) var isLoadingMore = false
     private(set) var isLoading = false
     private(set) var error: String?
 
@@ -217,6 +220,7 @@ final class AppModel {
 
         // Stale-while-revalidate: show what we already have, then refresh
         // behind it. A spinner appears only when there is nothing to show.
+        extraItems = []
         if let cached = await ClassicalAPI.shared.cachedScreen(at: path) {
             screen = cached
             isLoading = false
@@ -240,5 +244,18 @@ final class AppModel {
             // A failed refresh must not wipe a screen that is already readable.
             if screen == nil { self.error = error.localizedDescription }
         }
+
+        await loadRemainder(for: path)
+    }
+
+    /// Long lists arrive truncated, and the screen endpoint will not serve the
+    /// rest. The catalog API will.
+    private func loadRemainder(for path: String) async {
+        guard let page = screen?.firstPage, page.hasMore, let offset = page.offset else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        let more = await LibraryAPI.shared.remainingTracks(forScreenPath: path, from: offset)
+        guard current?.path == path else { return }
+        extraItems = more
     }
 }

@@ -244,3 +244,91 @@ final class Favourites {
         _ = try? await URLSession.shared.data(for: request)
     }
 }
+
+// MARK: - Pagination
+
+/// Fetches the rows a screen leaves out.
+///
+/// A list screen reports where the next page starts, but the screen endpoint
+/// ignores every attempt to ask for it — `?page=`, `?offset=` and `?startIndex=`
+/// all return the first page again. The page token decodes to ordinary Apple
+/// Music parameters, which is the hint: the catalog API paginates properly, so
+/// the tail is fetched from there and appended.
+///
+/// Those rows carry less than the classical ones — no work grouping — but a
+/// truncated list is worse than a plainer tail.
+extension LibraryAPI {
+    func remainingTracks(forScreenPath path: String, from offset: Int) async -> [Item] {
+        guard offset >= 0, let creds = TokenStore.shared.credentials else { return [] }
+
+        let kind: String
+        let identifier: String
+        if let id = Self.capture(#"/playlist/(pl\.[A-Za-z0-9]+)"#, path) {
+            kind = "playlists"; identifier = id
+        } else if let id = Self.capture(#"/album/(\d+)"#, path) {
+            kind = "albums"; identifier = id
+        } else {
+            return []
+        }
+
+        var collected: [Item] = []
+        var cursor = offset
+
+        // Bounded: a runaway loop against someone else's API is not acceptable.
+        for _ in 0..<20 {
+            let url = "https://amp-api.music.apple.com/v1/catalog/\(creds.storefront)"
+                + "/\(kind)/\(identifier)/tracks?limit=100&offset=\(cursor)"
+            guard let request = Self.signed(url, creds),
+                  let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let payload = try? JSONDecoder().decode(CatalogTracks.self, from: data)
+            else { break }
+
+            collected += payload.data.map { entry in
+                let attributes = entry.attributes
+                return Item(
+                    catalogID: entry.id,
+                    type: "track",
+                    title: attributes?.name,
+                    subtitle: attributes?.artistName,
+                    durationMs: attributes?.durationInMillis,
+                    payload: Payload(id: entry.id, type: "songs"))
+            }
+
+            guard payload.next != nil, !payload.data.isEmpty else { break }
+            cursor += payload.data.count
+        }
+        return collected
+    }
+
+    private static func signed(_ url: String, _ creds: TokenStore.Credentials) -> URLRequest? {
+        guard let url = URL(string: url) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(creds.developerToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(creds.musicUserToken, forHTTPHeaderField: "Music-User-Token")
+        request.setValue("https://music.apple.com", forHTTPHeaderField: "Origin")
+        return request
+    }
+
+    private static func capture(_ pattern: String, _ text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: text)
+        else { return nil }
+        return String(text[r])
+    }
+
+    private struct CatalogTracks: Decodable {
+        struct Entry: Decodable {
+            struct Attributes: Decodable {
+                let name: String?
+                let artistName: String?
+                let durationInMillis: Int?
+            }
+            let id: String
+            let attributes: Attributes?
+        }
+        let data: [Entry]
+        let next: String?
+    }
+}

@@ -78,9 +78,13 @@ struct Page: Decodable {
     /// Row titles arrive first; durations and performer credits need a second
     /// request to this path.
     let tracksMetadataUrl: String?
+    /// Where the next page begins, or -1 when the list is complete. The screen
+    /// endpoint ignores every attempt to ask for that page, so the remainder is
+    /// fetched from the catalog API instead.
+    let offset: Int?
 
     enum CodingKeys: String, CodingKey {
-        case type, heading, description, icon, items, tracksMetadataUrl
+        case type, heading, description, icon, items, tracksMetadataUrl, offset
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +95,7 @@ struct Page: Decodable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         items = lenientArray(Item.self, from: c, forKey: .items, context: "items")
         tracksMetadataUrl = try c.decodeIfPresent(String.self, forKey: .tracksMetadataUrl)
+        offset = try c.decodeIfPresent(Int.self, forKey: .offset)
     }
 
     init(type: String?, items: [Item], heading: String? = nil, description: String? = nil) {
@@ -100,9 +105,13 @@ struct Page: Decodable {
         self.icon = nil
         self.items = items
         self.tracksMetadataUrl = nil
+        self.offset = nil
     }
 
     var isEmptyState: Bool { items.isEmpty }
+
+    /// True when the catalog says more rows exist beyond the ones sent.
+    var hasMore: Bool { (offset ?? -1) >= 0 }
 }
 
 extension ScreenSection {
@@ -326,9 +335,11 @@ struct Header: Decodable {
     /// Browse and search screens carry a header holding nothing but a title.
     /// Rendering a masthead for those produces a large empty cover above the
     /// results, so they are treated as having no header at all.
+    /// A subtitle alone is not enough: "see all" listings carry one and still
+    /// have nothing to show above the results.
     var isDecorative: Bool {
         hasArtwork || composerName != nil || editorialNotes?.text != nil
-            || (subtitle?.isEmpty == false) || year != nil || lastUpdated != nil
+            || year != nil || lastUpdated != nil
     }
 
     var caption: String? {
