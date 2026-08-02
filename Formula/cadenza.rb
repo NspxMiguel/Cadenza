@@ -24,6 +24,7 @@ class Cadenza < Formula
     bin_path = Utils.safe_popen_read("swift", "build", "-c", "release",
                                      "--disable-sandbox", "--show-bin-path").strip
     cp "#{bin_path}/Cadenza", app/"Contents/MacOS/Cadenza"
+    cp buildpath/"Resources/Cadenza.icns", app/"Contents/Resources/Cadenza.icns"
 
     (app/"Contents/Info.plist").write <<~PLIST
       <?xml version="1.0" encoding="UTF-8"?>
@@ -33,6 +34,7 @@ class Cadenza < Formula
           <key>CFBundleExecutable</key><string>Cadenza</string>
           <key>CFBundleIdentifier</key><string>com.miguel.cadenza</string>
           <key>CFBundleName</key><string>Cadenza</string>
+          <key>CFBundleIconFile</key><string>Cadenza</string>
           <key>CFBundleDisplayName</key><string>Cadenza</string>
           <key>CFBundlePackageType</key><string>APPL</string>
           <key>CFBundleShortVersionString</key><string>#{version}</string>

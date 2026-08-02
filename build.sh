@@ -10,6 +10,7 @@ swift build -c release
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/Cadenza" "$APP/Contents/MacOS/Cadenza"
+cp Resources/Cadenza.icns "$APP/Contents/Resources/Cadenza.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,6 +20,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>Cadenza</string>
     <key>CFBundleIdentifier</key><string>com.miguel.cadenza</string>
     <key>CFBundleName</key><string>Cadenza</string>
+    <key>CFBundleIconFile</key><string>Cadenza</string>
     <key>CFBundleDisplayName</key><string>Cadenza</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1</string>
@@ -26,7 +28,16 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- Window restoration is what produced the "quit unexpectedly while
+         reopening windows" loop after an unclean exit. The app has no document
+         state worth restoring. -->
+    <key>NSQuitAlwaysKeepsWindows</key><false/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+    <!-- Required: MusicAuthorization.request() runs at launch to decide whether
+         lossless is reachable. Without this string TCC kills the process
+         outright, which reads as a crash on every launch. -->
+    <key>NSAppleMusicUsageDescription</key>
+    <string>O Cadenza usa o Apple Music para tocar o catálogo de música clássica.</string>
 </dict>
 </plist>
 PLIST

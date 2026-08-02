@@ -206,7 +206,7 @@ struct ShelfView: View {
         VStack(alignment: .leading, spacing: 10) {
             if let title = component.heading ?? heading, !title.isEmpty {
                 HStack(spacing: 5) {
-                    Text(title).font(.title2.weight(.semibold))
+                    Text(title).font(.cadenzaHeading)
                     if seeAll?.url != nil {
                         Image(systemName: "chevron.right")
                             .font(.body.weight(.semibold))
@@ -344,7 +344,7 @@ struct WorkHeadingRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(item.title ?? "")
-                .font(.headline)
+                .font(.cadenzaWork)
             if item.action?.url != nil {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -542,7 +542,7 @@ struct ScreenHeader: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(header.title ?? "")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.cadenzaTitle(27))
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -879,4 +879,22 @@ struct CacheSection: View {
         }
         .task { size = await ScreenCache.shared.size() }
     }
+}
+
+// MARK: - Typography
+
+/// Classical music sets its titles in serif, and the official app does too.
+/// Headings use the platform serif — New York — while lists, controls and
+/// metadata stay in the system sans, where legibility at small sizes matters
+/// more than character.
+extension Font {
+    static func cadenzaTitle(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+
+    /// Shelf and section headings.
+    static var cadenzaHeading: Font { .system(size: 21, weight: .semibold, design: .serif) }
+
+    /// Work titles standing above their movements.
+    static var cadenzaWork: Font { .system(size: 15, weight: .semibold, design: .serif) }
 }

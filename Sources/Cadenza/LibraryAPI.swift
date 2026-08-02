@@ -29,6 +29,53 @@ actor LibraryAPI {
         let name: String
     }
 
+    /// Playlists that actually contain classical music.
+    ///
+    /// The library is not classical-only, and the API offers no server-side
+    /// filter — `filter[tracks:classical]` is rejected on library endpoints. But
+    /// library tracks do carry `genreNames`, so each playlist is sampled once
+    /// and the verdict cached. A classical app showing someone's hip-hop
+    /// playlists is worse than one extra request per playlist, once.
+    func classicalPlaylists() async throws -> [PlaylistSummary] {
+        let all = try await playlists()
+        var keep: [PlaylistSummary] = []
+
+        for summary in all {
+            if let cached = Self.cachedVerdict(for: summary.id) {
+                if cached { keep.append(summary) }
+                continue
+            }
+            let verdict = await isClassical(playlist: summary.id)
+            Self.cacheVerdict(verdict, for: summary.id)
+            if verdict { keep.append(summary) }
+        }
+        return keep
+    }
+
+    private func isClassical(playlist id: String) async -> Bool {
+        guard let payload: Response<TrackItem> = try? await get(
+            "/playlists/\(id)/tracks?limit=25") else { return false }
+
+        return payload.data.contains { entry in
+            (entry.attributes?.genreNames ?? []).contains { Self.readsAsClassical($0) }
+        }
+    }
+
+    /// Genre names arrive localised — "Classical", "Música clássica",
+    /// "Crossover clássico" — so the comparison strips diacritics first.
+    nonisolated static func readsAsClassical(_ genre: String) -> Bool {
+        genre.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .contains("classic")
+    }
+
+    private static func cachedVerdict(for id: String) -> Bool? {
+        UserDefaults.standard.object(forKey: "cadenza.classical." + id) as? Bool
+    }
+
+    private static func cacheVerdict(_ value: Bool, for id: String) {
+        UserDefaults.standard.set(value, forKey: "cadenza.classical." + id)
+    }
+
     func playlists(limit: Int = 40) async throws -> [PlaylistSummary] {
         let payload: Response<PlaylistItem> = try await get("/playlists?limit=\(limit)")
         return payload.data.compactMap { entry in
@@ -45,7 +92,7 @@ actor LibraryAPI {
     /// rejected here. Listing every playlist in a classical app's sidebar turns
     /// it into a general music library, so they live one click away instead.
     func playlistsScreen() async throws -> Screen {
-        let summaries = try await playlists()
+        let summaries = try await classicalPlaylists()
         let items = summaries.map { summary in
             Item(catalogID: summary.id,
                  type: "playlist",
@@ -55,9 +102,19 @@ actor LibraryAPI {
                                 url: LibraryRoute.playlist(summary.id)),
                  payload: Payload(id: summary.id, type: "playlists"))
         }
+        guard !items.isEmpty else {
+            return Screen(
+                screenType: "libraryPlaylists",
+                title: "Playlists",
+                firstPage: Page(type: "empty", items: [],
+                                heading: "Nenhuma playlist de clássica",
+                                description: "Nenhuma playlist da sua biblioteca do Apple Music "
+                                    + "contém gravações de música clássica."))
+        }
+
         return Screen(
             screenType: "libraryPlaylists",
-            title: "Playlists da sua biblioteca",
+            title: "Playlists de clássica",
             sections: [ScreenSection(type: "playlists", heading: "Apple Music",
                                      components: [Component(type: "shelf", items: items)])])
     }
@@ -121,6 +178,7 @@ actor LibraryAPI {
         struct Attributes: Decodable {
             let name: String?
             let artistName: String?
+            let genreNames: [String]?
             let durationInMillis: Int?
             let artwork: Artwork?
             let playParams: PlayParams?
