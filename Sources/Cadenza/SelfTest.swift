@@ -123,6 +123,12 @@ enum SelfTest {
             for l in linhas { say(l) }
         }
 
+        if ProcessInfo.processInfo.environment["CADENZA_FAKE_CD"] != nil {
+            say("")
+            say("=== extração de CD ===")
+            for l in await cdCheck() { say(l) }
+        }
+
         say("")
         say("=== navegação ===")
         for line in await navigationCheck() { say(line) }
@@ -139,6 +145,28 @@ enum SelfTest {
     /// other test here: the model is fine in isolation and the screen is fine
     /// in isolation, and only the sequence shows the fault.
     /// Copies the library into a folder and reads back what landed there.
+    /// Rips a folder shaped like a mounted disc, which is as close as a Mac
+    /// with no optical drive can get to the real thing.
+    @MainActor
+    private static func cdCheck() async -> [String] {
+        var linhas: [String] = []
+        let cd = CDRip.shared
+        cd.refresh()
+        guard let disc = cd.disc else { return ["nenhum disco detectado"] }
+        linhas.append("disco: \(disc.name), \(disc.tracks.count) faixas")
+        linhas.append("ordem: " + disc.tracks.map { $0.lastPathComponent }.joined(separator: ", "))
+        cd.albumName = "Disco de Teste"
+        cd.artistName = "Orquestra Teste"
+        cd.quality = .lossless
+        await cd.rip()
+        if case .done(let m) = cd.state { linhas.append("resultado: \(m)") }
+        if case .failed(let m) = cd.state { linhas.append("FALHA: \(m)") }
+        let grupos = LocalLibrary.shared.albums()
+        linhas.append("álbuns após extrair: " + grupos.map { "\($0.name) (\($0.tracks.count))" }
+            .joined(separator: ", "))
+        return linhas
+    }
+
     @MainActor
     private static func cloudCheck(_ destino: URL) async -> [String] {
         var linhas: [String] = []

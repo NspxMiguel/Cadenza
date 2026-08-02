@@ -1550,6 +1550,7 @@ struct ScoreSettings: View {
 
 struct StorageSettings: View {
     @State private var cloud = CloudSync.shared
+    @State private var cd = CDRip.shared
     @State private var size: Int64 = 0
     @State private var clearing = false
 
@@ -1576,6 +1577,50 @@ struct StorageSettings: View {
             } footer: {
                 Text("As telas visitadas são guardadas para abrir na hora e atualizar em "
                      + "segundo plano. Limpar não apaga nada da sua biblioteca.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if let disc = cd.disc {
+                    LabeledContent("Disco") {
+                        Text("\(disc.name) — \(disc.tracks.count) faixas")
+                            .foregroundStyle(.secondary)
+                    }
+                    TextField("Nome do álbum", text: $cd.albumName)
+                    TextField("Intérpretes", text: $cd.artistName)
+                    Picker("Qualidade", selection: $cd.quality) {
+                        ForEach(CDRip.Quality.allCases) { Text($0.label).tag($0) }
+                    }
+                    switch cd.state {
+                    case .ripping(let n, let total):
+                        HStack(spacing: 7) {
+                            ProgressView(value: Double(n), total: Double(total))
+                                .frame(width: 140)
+                            Text("Faixa \(n) de \(total)").font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    default:
+                        Button("Extrair para a biblioteca") { Task { await cd.rip() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    if case .done(let message) = cd.state {
+                        Text(message).font(.callout).foregroundStyle(.secondary)
+                    }
+                    if case .failed(let message) = cd.state {
+                        Text(message).font(.callout).foregroundStyle(.orange)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        Text("Nenhum CD de áudio inserido.")
+                            .foregroundStyle(.secondary)
+                        Button("Procurar") { cd.refresh() }.buttonStyle(.link)
+                    }
+                }
+            } header: {
+                Text("Extrair CD")
+            } footer: {
+                Text("O disco não guarda títulos — nunca guardou. Dê o nome do álbum e "
+                     + "dos intérpretes uma vez e as faixas saem numeradas e etiquetadas.")
                 .font(.caption).foregroundStyle(.secondary)
             }
 
