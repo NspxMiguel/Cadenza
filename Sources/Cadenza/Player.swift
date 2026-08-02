@@ -42,11 +42,22 @@ protocol Player: AnyObject {
     var ceiling: AudioCeiling { get }
 
     func play(trackID: String) async throws
+    /// `kind` is the catalog's own vocabulary — `songs`, `albums`, `playlists`.
+    func play(id: String, kind: String) async throws
     func togglePlayPause()
     func seek(to position: TimeInterval)
     func skipForward()
     func skipBackward()
     func stop()
+
+    /// Eases to silence before pausing, for the sleep timer.
+    func fadeOutAndPause(over seconds: TimeInterval)
+}
+
+extension Player {
+    /// Engines without volume control simply pause. ApplicationMusicPlayer
+    /// exposes no volume, so a gradual fade is not available there.
+    func fadeOutAndPause(over seconds: TimeInterval) { togglePlayPause() }
 }
 
 extension Player {

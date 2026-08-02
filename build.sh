@@ -31,6 +31,35 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
+# Lossless needs the MusicKit entitlement, which needs a paid team. Without
+# CADENZA_TEAM the build is ad-hoc signed and runs on the WebKit engine — see
+# docs/lossless.md.
+if [ -n "${CADENZA_TEAM:-}" ]; then
+    ENT="$(mktemp -t cadenza-entitlements).plist"
+    cat > "$ENT" <<'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.musickit</key><true/>
+</dict>
+</plist>
+ENTITLEMENTS
+
+    IDENTITY=$(security find-identity -v -p codesigning \
+        | grep -m1 "Apple Development" | sed -E 's/.*"(.*)"/\1/')
+    if [ -z "$IDENTITY" ]; then
+        echo "CADENZA_TEAM definido, mas nenhuma identidade 'Apple Development' na keychain." >&2
+        echo "Entre com seu Apple ID no Xcode (Settings ▸ Accounts) e tente de novo." >&2
+        exit 1
+    fi
+
+    echo "assinando para lossless com: $IDENTITY (time $CADENZA_TEAM)"
+    codesign --force --deep --options runtime \
+        --entitlements "$ENT" --sign "$IDENTITY" "$APP"
+    rm -f "$ENT"
+else
+    codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
+fi
 
 echo "→ $APP"

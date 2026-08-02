@@ -38,7 +38,7 @@ struct RootView: View {
                 if let context = model.playableContext {
                     Button {
                         Task {
-                            try? await WebKitEngine.shared.play(
+                            try? await Playback.shared.active.play(
                                 id: context.id, kind: context.type)
                         }
                     } label: {
@@ -52,14 +52,14 @@ struct RootView: View {
             if model.needsLogin {
                 showingLogin = true
             } else {
-                WebKitEngine.shared.start()
+                Task { await Playback.shared.start() }
                 await model.start()
             }
         }
         .sheet(isPresented: $showingLogin) {
             LoginSheet {
                 showingLogin = false
-                WebKitEngine.shared.start()
+                Task { await Playback.shared.start() }
                 Task { await model.start() }
             }
         }
@@ -238,7 +238,7 @@ struct ItemCard: View {
             .overlay(alignment: .bottomLeading) {
                 if hovering, let context = item.playable {
                     Button {
-                        Task { try? await WebKitEngine.shared.play(
+                        Task { try? await Playback.shared.active.play(
                             id: context.id, kind: context.type) }
                     } label: {
                         Image(systemName: "play.fill")
@@ -294,11 +294,8 @@ struct TrackListView: View {
     }
 
     private func play(_ item: Item) {
-        guard let payload = item.playable else {
-            WebKitEngine.shared.log("linha sem payload: \(item.title ?? "?")")
-            return
-        }
-        Task { try? await WebKitEngine.shared.play(id: payload.id, kind: payload.type) }
+        guard let payload = item.playable else { return }
+        Task { try? await Playback.shared.active.play(id: payload.id, kind: payload.type) }
     }
 
     var body: some View {
@@ -350,7 +347,7 @@ struct TrackRow: View {
     @State private var hovering = false
 
     private var isCurrent: Bool {
-        item.playable?.id == WebKitEngine.shared.nowPlaying?.trackID
+        item.playable?.id == Playback.shared.active.nowPlaying?.trackID
     }
 
     var body: some View {
@@ -359,7 +356,7 @@ struct TrackRow: View {
                 if hovering, item.playable != nil {
                     Image(systemName: "play.fill").font(.caption)
                 } else if isCurrent {
-                    Image(systemName: WebKitEngine.shared.status == .playing
+                    Image(systemName: Playback.shared.active.status == .playing
                           ? "speaker.wave.2.fill" : "speaker.fill")
                         .font(.caption)
                         .foregroundStyle(.tint)
@@ -400,7 +397,7 @@ struct TrackRow: View {
 /// offer is better than what this engine can deliver — the honest alternative
 /// to implying a quality the app cannot produce.
 struct NowPlayingBar: View {
-    private var engine: WebKitEngine { WebKitEngine.shared }
+    private var engine: any Player { Playback.shared.active }
     @State private var showingLyrics = false
 
     var body: some View {
@@ -529,7 +526,7 @@ struct ScreenHeader: View {
 
                 if let context {
                     Button {
-                        Task { try? await WebKitEngine.shared.play(
+                        Task { try? await Playback.shared.active.play(
                             id: context.id, kind: context.type) }
                     } label: {
                         Label("Reproduzir", systemImage: "play.fill")
@@ -554,13 +551,13 @@ struct ScreenHeader: View {
 /// Stops the music after a chosen interval, fading out rather than cutting.
 /// The kind of thing the official app never offered on any platform.
 struct SleepTimerMenu: View {
-    private var engine: WebKitEngine { WebKitEngine.shared }
+    private var engine: any Player { Playback.shared.active }
     @State private var now = Date()
 
     private let tick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
 
     private var remaining: String? {
-        guard let deadline = engine.sleepDeadline else { return nil }
+        guard let deadline = Playback.shared.sleepDeadline else { return nil }
         let minutes = max(0, Int(deadline.timeIntervalSince(now) / 60) + 1)
         return "\(minutes) min"
     }
@@ -569,17 +566,17 @@ struct SleepTimerMenu: View {
         Menu {
             ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
                 Button("Parar em \(minutes) min") {
-                    engine.scheduleSleep(after: Double(minutes) * 60)
+                    Playback.shared.scheduleSleep(after: Double(minutes) * 60)
                     now = Date()
                 }
             }
-            if engine.sleepDeadline != nil {
+            if Playback.shared.sleepDeadline != nil {
                 Divider()
-                Button("Cancelar timer") { engine.cancelSleep() }
+                Button("Cancelar timer") { Playback.shared.cancelSleep() }
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: engine.sleepDeadline == nil ? "moon" : "moon.fill")
+                Image(systemName: Playback.shared.sleepDeadline == nil ? "moon" : "moon.fill")
                 if let remaining {
                     Text(remaining).font(.caption.monospacedDigit())
                 }
@@ -599,7 +596,7 @@ struct SleepTimerMenu: View {
 /// Most of the classical catalog has none — Apple answers 404 — so this says so
 /// plainly instead of presenting an empty panel as a failure.
 struct LyricsPanel: View {
-    private var engine: WebKitEngine { WebKitEngine.shared }
+    private var engine: any Player { Playback.shared.active }
 
     @State private var lines: [LyricLine] = []
     @State private var loadedFor: String?
@@ -691,5 +688,51 @@ struct ArtworkPlaceholder: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+// MARK: - Settings
+
+/// Where the quality ceiling is chosen — and explained when it cannot be lifted.
+struct SettingsView: View {
+    @State private var playback = Playback.shared
+
+    var body: some View {
+        Form {
+            Picker("Motor de áudio", selection: Binding(
+                get: { playback.preference },
+                set: { playback.preference = $0 }
+            )) {
+                ForEach(Playback.Preference.allCases, id: \.self) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Divider().padding(.vertical, 4)
+
+            LabeledContent("Reproduzindo em") {
+                Text(playback.active.ceiling.rawValue).foregroundStyle(.secondary)
+            }
+
+            if playback.losslessAvailable {
+                Label("Lossless disponível neste build.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Lossless indisponível", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    if let reason = playback.losslessDiagnosis {
+                        Text(reason)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .padding()
     }
 }

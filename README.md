@@ -41,11 +41,47 @@ The `v10` endpoints are private and undocumented. They carry no compatibility
 guarantee and will break when Apple changes them; the data layer is kept isolated so
 that breakage stays cheap to repair. This is a personal-use client.
 
-## Build
+## Install
 
-No Xcode required — Command Line Tools are enough.
+```bash
+brew tap nspxmiguel/cadenza https://github.com/NspxMiguel/Cadenza
+brew install --HEAD cadenza
+```
+
+The formula compiles from source on your machine and signs the result locally.
+Because nothing is downloaded as a binary, there is no quarantine attribute and
+Gatekeeper raises no "unidentified developer" prompt — the app just opens. Only
+Command Line Tools are needed; a full Xcode install is not.
+
+The app is linked into `~/Applications`.
+
+## Build from a checkout
 
 ```bash
 ./build.sh
 open build/Cadenza.app
 ```
+
+For Lossless and Spatial Audio, build with a paid Apple Developer team:
+
+```bash
+CADENZA_TEAM=YOURTEAMID ./build.sh
+```
+
+See [docs/lossless.md](docs/lossless.md) for why that is required and what
+changes when it is present.
+
+## Audio quality
+
+Two engines sit behind one `Player` protocol:
+
+| Engine | Ceiling | Requirement |
+|---|---|---|
+| WebKit | 256 kbps AAC | none |
+| Native MusicKit | Lossless + Spatial | MusicKit entitlement (paid membership) |
+
+The app probes for native MusicKit at launch and routes to it when available,
+falling back to WebKit otherwise. **Settings ▸ Motor de áudio** forces either
+one and explains what is missing when lossless is out of reach. The transport
+always states the ceiling in effect, so the app never implies a quality it
+cannot deliver.
