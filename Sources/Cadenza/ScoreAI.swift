@@ -149,7 +149,7 @@ final class ScoreAI {
         }
 
         state = .working("Reconhecendo notas… alguns minutos, usando a CPU.")
-        let output = await Task.detached { [toolPath] in
+        let output = await Task.detached(priority: .userInitiated) { [toolPath] in
             Self.run(toolPath.path, [image.path, "-o", workspace.path])
         }.value
 
@@ -173,6 +173,11 @@ final class ScoreAI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
+        // Without this the child inherits a background quality of service and
+        // is niced: the same recognition that takes under four minutes from a
+        // shell was still running after fifteen, pinned to a single core. The
+        // user asked for this work and is waiting on it.
+        process.qualityOfService = .userInitiated
 
         let pipe = Pipe()
         process.standardOutput = pipe

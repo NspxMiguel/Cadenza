@@ -632,6 +632,7 @@ struct NowPlayingBar: View {
     @State private var showingScore = false
     @State private var showingLyrics = false
     @State private var showingQueue = false
+    @State private var ai = ScoreAI.shared
 
     var body: some View {
         if let track = Playback.shared.displayed {
@@ -640,6 +641,20 @@ struct NowPlayingBar: View {
                 HStack(spacing: 7) {
                     Image(systemName: "info.circle")
                     Text(hint).font(.callout)
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .background(.quaternary.opacity(0.5))
+            }
+            // Recognition takes minutes, and choosing the file closes the score
+            // panel that was showing its progress — so the only place left to
+            // say anything was here. Without it the app looks idle while it is
+            // saturating four cores.
+            if case .working(let step) = ai.state {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("Partitura por IA — \(step)").font(.callout)
                     Spacer()
                 }
                 .foregroundStyle(.secondary)
