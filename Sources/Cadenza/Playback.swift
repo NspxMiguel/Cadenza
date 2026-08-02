@@ -60,6 +60,7 @@ final class Playback {
     /// out whether this build can reach native MusicKit.
     func start() async {
         WebKitEngine.shared.start()
+        await AppSettings.shared.loadStorefrontLanguages()
 
         // Quiet at launch: asking here would prompt for Apple Music access every
         // time the app opens, to test a capability most builds cannot use.

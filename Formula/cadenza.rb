@@ -7,7 +7,7 @@ class Cadenza < Formula
   # Command Line Tools are enough — the app deliberately avoids anything that
   # would require a full Xcode install.
   depends_on xcode: :build
-  depends_on :macos => :sonoma
+  depends_on :macos => :sequoia
 
   def install
     # --disable-sandbox: SwiftPM writes to .build, which Homebrew's sandbox
@@ -40,7 +40,7 @@ class Cadenza < Formula
           <key>CFBundleShortVersionString</key><string>#{version}</string>
           <key>CFBundleVersion</key><string>#{version}</string>
           <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-          <key>LSMinimumSystemVersion</key><string>14.0</string>
+          <key>LSMinimumSystemVersion</key><string>15.0</string>
           <key>NSHighResolutionCapable</key><true/>
           <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
           <key>NSAppleMusicUsageDescription</key>

@@ -1,5 +1,10 @@
 import AppKit
 import SwiftUI
+// TranslationSession predates strict concurrency: it is a plain class, and
+// translationTask's closure is not @Sendable, so it inherits the view's main
+// actor. Calling a nonisolated async method on it then reads as sending a
+// non-Sendable value, though the session never leaves the main actor here.
+@preconcurrency import Translation
 import UniformTypeIdentifiers
 
 // MARK: - Root
@@ -709,7 +714,40 @@ struct ScreenHeader: View {
 struct LyricsPanel: View {
     private var engine: any Player { Playback.shared.active }
 
+    @State private var translations = Translations()
+    @State private var translationConfig: TranslationSession.Configuration?
+
+    /// The sung line is the text; the translation is a gloss beneath it, kept
+    /// deliberately quiet so it never competes with the words being sung.
+    @ViewBuilder
+    private func lineView(_ line: LyricLine) -> some View {
+        let isCurrent = line.id == currentLine
+        VStack(alignment: .leading, spacing: 3) {
+            Text(line.text)
+                .font(.title3.weight(isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? .primary : .tertiary)
+
+            if let translated = translations[line.id], translated != line.text {
+                Text(translated)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .opacity(isCurrent ? 0.62 : 0.32)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: isCurrent)
+    }
+
+    private func prepareTranslation() {
+        guard !lines.isEmpty, let code = AppSettings.storedLanguageCode else {
+            translationConfig = nil
+            return
+        }
+        translationConfig = TranslationSession.Configuration(
+            source: nil, target: Locale.Language(identifier: code))
+    }
+
     @State private var lines: [LyricLine] = []
+    @State private var pendingTexts: [PendingLine] = []
     @State private var loadedFor: String?
 
     private var currentLine: LyricLine.ID? {
@@ -729,9 +767,7 @@ struct LyricsPanel: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 14) {
                             ForEach(lines) { line in
-                                Text(line.text)
-                                    .font(.title3.weight(line.id == currentLine ? .semibold : .regular))
-                                    .foregroundStyle(line.id == currentLine ? .primary : .tertiary)
+                                lineView(line)
                                     .id(line.id)
                                     .onTapGesture { engine.seek(to: line.start) }
                             }
@@ -749,12 +785,30 @@ struct LyricsPanel: View {
             }
         }
         .task(id: engine.nowPlaying?.trackID) { await load() }
+        // Apple's on-device translator. The text never leaves this Mac, and the
+        // source language is left unset so the framework identifies it — a Lied
+        // is German, an aria Italian, and the catalog never says which.
+        //
+        // The work stays inside the closure: handing the session to a method
+        // would send it across an isolation boundary it is not built to cross.
+        .translationTask(translationConfig) { [store = translations, pending = pendingTexts] session in
+            var mapped: [(UUID, String)] = []
+            for entry in pending {
+                guard let response = try? await session.translate(entry.text) else { continue }
+                mapped.append((entry.id, response.targetText))
+            }
+            let finished = mapped
+            await store.apply(finished)
+        }
     }
 
     private func load() async {
         guard let id = engine.nowPlaying?.trackID, !id.isEmpty, id != loadedFor else { return }
         loadedFor = id
+        translations.reset()
         lines = await LyricsService.shared.lyrics(forTrack: id)
+        pendingTexts = lines.map { PendingLine(id: $0.id, text: $0.text) }
+        prepareTranslation()
     }
 }
 
@@ -1124,6 +1178,13 @@ extension Font {
 
     /// Work titles standing above their movements.
     static var cadenzaWork: Font { .system(size: 15, weight: .semibold, design: .serif) }
+}
+
+/// A line queued for translation. Sendable so the translation closure can
+/// carry it without reaching back into the view.
+struct PendingLine: Sendable {
+    let id: UUID
+    let text: String
 }
 
 // MARK: - Score
