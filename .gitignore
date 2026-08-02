@@ -1,0 +1,10 @@
+# Credentials harvested at runtime — contains the user's Music-User-Token.
+# Never commit anything from here.
+capture/
+
+# Build output
+.build/
+build/
+*.app
+
+.DS_Store
