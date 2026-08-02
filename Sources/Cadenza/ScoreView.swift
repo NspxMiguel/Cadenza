@@ -18,6 +18,8 @@ struct ScoreView: NSViewRepresentable {
     /// Manual correction, in seconds, for performances that stray from the
     /// score's own proportions.
     let offset: TimeInterval
+    /// Records a calibration point when a note is clicked.
+    var onAnchor: ((Double) -> Void)? = nil
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -49,9 +51,14 @@ struct ScoreView: NSViewRepresentable {
         // was crossing into JavaScript to move a highlight that had not moved.
         guard abs(elapsed - coordinator.lastSeek) >= 0.4 else { return }
         coordinator.lastSeek = elapsed
+        coordinator.onAnchor = onAnchor
 
+        // The mapping from recording to score lives in Swift, where the
+        // calibration points are kept; the page is simply told where to be.
+        let scorePosition = ScoreAnchors.shared.scorePosition(
+            forReal: elapsed, duration: duration, scoreEnd: coordinator.scoreEnd)
         webView.evaluateJavaScript(
-            "window.cadenzaSeek(\(elapsed), \(duration))", completionHandler: nil)
+            "window.cadenzaShow(\(scorePosition))", completionHandler: nil)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -62,6 +69,8 @@ struct ScoreView: NSViewRepresentable {
         var pendingXML: String?
         var toolkitReady = false
         var lastSeek: TimeInterval = -1
+        var scoreEnd: Double = 0
+        var onAnchor: ((Double) -> Void)?
 
         /// Written to a file rather than stderr: the app is normally started
         /// with `open`, which discards standard error, so anything logged there
@@ -73,6 +82,10 @@ struct ScoreView: NSViewRepresentable {
             if text == "toolkit pronto" {
                 toolkitReady = true
                 flushIfReady()
+            } else if text.hasPrefix("fim:") {
+                scoreEnd = Double(text.dropFirst(4)) ?? 0
+            } else if text.hasPrefix("ancora:") {
+                if let stamp = Double(text.dropFirst(7)) { onAnchor?(stamp) }
             }
         }
 
@@ -171,13 +184,30 @@ struct ScoreView: NSViewRepresentable {
       // Note onsets in the score's own time, which is what gets rescaled.
       timemap = JSON.parse(toolkit.renderToTimemap({ includeMeasures: true }));
       scoreEnd = timemap.length ? timemap[timemap.length - 1].tstamp : 0;
+      try { window.webkit.messageHandlers.score.postMessage('fim:' + scoreEnd); } catch (e) {}
+
+      // Clicking a note as it sounds is how the listener corrects the
+      // alignment, so every note reports its own place in the score.
+      document.querySelectorAll('g.note').forEach(function (el) {
+        el.style.cursor = 'crosshair';
+        el.addEventListener('click', function () {
+          var stamp = onsetOf(el.id);
+          if (stamp === null) return;
+          try { window.webkit.messageHandlers.score.postMessage('ancora:' + stamp); } catch (e) {}
+        });
+      });
     };
 
-    window.cadenzaSeek = function (elapsed, duration) {
-      if (!timemap.length || !scoreEnd || !duration) return;
+    function onsetOf(id) {
+      for (var i = 0; i < timemap.length; i++) {
+        var entry = timemap[i];
+        if (entry.on && entry.on.indexOf(id) !== -1) return entry.tstamp;
+      }
+      return null;
+    }
 
-      // The score's timeline is stretched onto the recording's.
-      const target = (elapsed / duration) * scoreEnd;
+    window.cadenzaShow = function (target) {
+      if (!timemap.length || !scoreEnd) return;
 
       let current = null;
       for (const entry of timemap) {

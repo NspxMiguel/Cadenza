@@ -1226,7 +1226,8 @@ struct ScorePanel: View {
                     ScoreView(musicXML: musicXML,
                               position: engine.position,
                               duration: track.duration,
-                              offset: offset)
+                              offset: offset,
+                              onAnchor: anchor)
                 }
 
                 Divider()
@@ -1238,14 +1239,31 @@ struct ScorePanel: View {
                             .lineLimit(1)
                     }
                     Spacer()
+
+                    // Calibration, phrased as what it is: click a note when you
+                    // hear it and the alignment corrects itself from there.
+                    let count = ScoreAnchors.shared.anchors.count
+                    Text(count == 0
+                         ? "Clique numa nota quando ouvi-la para alinhar"
+                         : "\(count) ponto\(count == 1 ? "" : "s") de alinhamento")
+                    .font(.caption)
+                    .foregroundStyle(count == 0 ? .tertiary : .secondary)
+
+                    if count > 0 {
+                        Button("Limpar") { ScoreAnchors.shared.clear() }
+                            .buttonStyle(.link).font(.caption)
+                    }
+
+                    Divider().frame(height: 12)
                     Text("Ajuste").font(.caption).foregroundStyle(.tertiary)
                     Button { offset -= 0.5 } label: { Image(systemName: "minus") }
+                        .buttonStyle(.plain)
                     Text("\(offset, specifier: "%.1f")s")
                         .font(.caption.monospacedDigit())
-                        .frame(width: 40)
+                        .frame(width: 38)
                     Button { offset += 0.5 } label: { Image(systemName: "plus") }
+                        .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
             } else if searching {
@@ -1300,8 +1318,16 @@ struct ScorePanel: View {
         }
     }
 
+    /// A note was clicked: pin the moment being heard to the moment in the score.
+    private func anchor(_ scoreStamp: Double) {
+        guard let track = engine.nowPlaying else { return }
+        ScoreAnchors.shared.load(for: track.trackID)
+        ScoreAnchors.shared.add(real: max(0, engine.position + offset), score: scoreStamp)
+    }
+
     private func load() async {
         guard let track = engine.nowPlaying, track.trackID != loadedFor else { return }
+        ScoreAnchors.shared.load(for: track.trackID)
         loadedFor = track.trackID
         musicXML = nil
         match = nil
