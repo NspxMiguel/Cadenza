@@ -115,6 +115,12 @@ struct Sidebar: View {
                     ForEach(model.library) { row($0) }
                 }
             }
+
+            if !model.playlists.isEmpty {
+                Section("Playlists") {
+                    ForEach(model.playlists) { row($0) }
+                }
+            }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { Color.clear.frame(height: 6) }
@@ -176,7 +182,8 @@ struct ScreenView: View {
                         if !component.items.isEmpty {
                             ShelfView(
                                 component: component,
-                                fallbackHeading: ScreenSection.label(for: section.type),
+                                heading: section.displayTitle,
+                                seeAll: section.heading?.seeAll,
                                 model: model)
                         }
                     }
@@ -191,15 +198,28 @@ struct ScreenView: View {
 
 struct ShelfView: View {
     let component: Component
-    var fallbackHeading: String? = nil
+    var heading: String? = nil
+    var seeAll: Action? = nil
     let model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let title = component.heading ?? fallbackHeading, !title.isEmpty {
-                Text(title)
-                    .font(.title2.weight(.semibold))
-                    .padding(.horizontal, 24)
+            if let title = component.heading ?? heading, !title.isEmpty {
+                HStack(spacing: 5) {
+                    Text(title).font(.title2.weight(.semibold))
+                    if seeAll?.url != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 24)
+                .onTapGesture {
+                    guard let action = seeAll, action.url != nil else { return }
+                    Task { await model.go(toAction: action, named: title) }
+                }
             }
 
             ScrollView(.horizontal, showsIndicators: false) {

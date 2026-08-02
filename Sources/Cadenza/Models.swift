@@ -49,6 +49,18 @@ struct Screen: Decodable {
         header = try? c.decodeIfPresent(Header.self, forKey: .header)
     }
 
+    /// Built in code rather than decoded, for screens assembled from the
+    /// personal library instead of the classical catalog.
+    init(screenType: String?, title: String?, header: Header? = nil,
+         sections: [ScreenSection] = [], firstPage: Page? = nil) {
+        self.screenType = screenType
+        self.title = title
+        self.publicUrl = nil
+        self.sections = sections
+        self.firstPage = firstPage
+        self.header = header
+    }
+
     /// Every item on the screen, flattened — most views want this, not the
     /// section/component nesting the server happens to use for layout.
     var allItems: [Item] { sections.flatMap { $0.components.flatMap(\.items) } }
@@ -81,6 +93,15 @@ struct Page: Decodable {
         tracksMetadataUrl = try c.decodeIfPresent(String.self, forKey: .tracksMetadataUrl)
     }
 
+    init(type: String?, items: [Item], heading: String? = nil, description: String? = nil) {
+        self.type = type
+        self.heading = heading
+        self.description = description
+        self.icon = nil
+        self.items = items
+        self.tracksMetadataUrl = nil
+    }
+
     var isEmptyState: Bool { items.isEmpty }
 }
 
@@ -104,19 +125,62 @@ extension ScreenSection {
 struct ScreenSection: Decodable {
     let type: String?
     let priority: String?
+    /// The shelf title lives here, on the section, as an object — not as a
+    /// string on the component. Reading it from the wrong level is why the home
+    /// screen came up as an unlabelled wall of covers.
+    let heading: SectionHeading?
     let components: [Component]
 
-    enum CodingKeys: String, CodingKey { case type, priority, components }
+    enum CodingKeys: String, CodingKey { case type, priority, heading, components }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         type = try c.decodeIfPresent(String.self, forKey: .type)
         priority = try c.decodeIfPresent(String.self, forKey: .priority)
+        heading = try? c.decodeIfPresent(SectionHeading.self, forKey: .heading)
         components = lenientArray(Component.self, from: c, forKey: .components, context: "Section.components")
     }
+
+    init(type: String?, heading: String?, components: [Component]) {
+        self.type = type
+        self.priority = nil
+        self.heading = heading.map { SectionHeading(title: $0, button: nil) }
+        self.components = components
+    }
+
+    /// The label to show, preferring the server's own wording and falling back
+    /// to the section type for screens that ship none, such as search.
+    var displayTitle: String? { heading?.title ?? Self.label(for: type) }
+}
+
+/// A shelf title, optionally with a button leading to the full listing.
+struct SectionHeading: Decodable {
+    struct Button: Decodable {
+        let title: String?
+        let action: Action?
+    }
+
+    init(title: String?, button: Button?) {
+        self.title = title
+        self.button = button
+    }
+
+    let title: String?
+    let button: Button?
+
+    var seeAll: Action? { button?.action }
 }
 
 struct Component: Decodable {
+    init(type: String?, items: [Item]) {
+        self.type = type
+        self.itemType = nil
+        self.heading = nil
+        self.displayStyle = nil
+        self.emphasize = nil
+        self.items = items
+    }
+
     let type: String?
     let itemType: String?
     /// Shelves label themselves with `heading`, not `title`.
@@ -196,6 +260,23 @@ struct Item: Decodable, Identifiable {
         return String(text[r])
     }
 
+    init(catalogID: String? = nil, type: String? = nil, title: String? = nil,
+         addition: String? = nil, subtitle: String? = nil, durationMs: Int? = nil,
+         image: Artwork? = nil, action: Action? = nil, payload: Payload? = nil) {
+        self.catalogID = catalogID
+        self.type = type
+        self.title = title
+        self.addition = addition
+        self.subtitle = subtitle
+        self.workSubheading = nil
+        self.durationMs = durationMs
+        self.inLibrary = nil
+        self.inFavorites = nil
+        self.image = image
+        self.action = action
+        self.payload = payload
+    }
+
     var isTrack: Bool { type == "track" }
     var isHeading: Bool { type == "subheading" }
 
@@ -208,6 +289,16 @@ struct Item: Decodable, Identifiable {
 
 /// The masthead of a playlist, album or work screen.
 struct Header: Decodable {
+    init(type: String?, title: String?, subtitle: String? = nil, image: Artwork? = nil) {
+        self.type = type
+        self.title = title
+        self.subtitle = subtitle
+        self.image = image
+        self.year = nil
+        self.lastUpdated = nil
+        self.audioTraits = nil
+    }
+
     let type: String?
     let title: String?
     let subtitle: String?
@@ -239,6 +330,8 @@ struct WorkRef: Decodable {
 }
 
 struct Artwork: Decodable {
+    init(url: String?) { self.url = url }
+
     let url: String?
 
     /// Artwork URLs are templates with `{w}`, `{h}` and `{f}` placeholders.
@@ -254,6 +347,12 @@ struct Artwork: Decodable {
 
 /// Navigation is data: an action carries the path of the screen it leads to.
 struct Action: Decodable {
+    init(type: String?, screenType: String?, url: String?) {
+        self.type = type
+        self.screenType = screenType
+        self.url = url
+    }
+
     let type: String?
     let screenType: String?
     let url: String?

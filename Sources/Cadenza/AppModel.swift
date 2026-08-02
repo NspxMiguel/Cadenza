@@ -19,6 +19,7 @@ struct Destination: Identifiable, Hashable {
 final class AppModel {
     private(set) var fixed: [Destination] = []
     private(set) var library: [Destination] = []
+    private(set) var playlists: [Destination] = []
 
     private(set) var screen: Screen?
     private(set) var isLoading = false
@@ -46,19 +47,56 @@ final class AppModel {
         await reload()
     }
 
-    /// Reads the library sidebar from the API rather than assuming its routes.
+    /// Reads the library sidebar from the API rather than assuming its routes,
+    /// then arranges it the way the official client does: recently added first,
+    /// playlists pulled out into their own group.
     private func loadLibraryDestinations() async {
+        var entries: [Destination] = [
+            Destination(name: "Adições recentes", symbol: "clock",
+                        path: "/query/view/\(storefront)//recently-added")
+        ]
+        var playlistRoot: Destination?
+
         do {
             let root = try await ClassicalAPI.shared.screen(at: "/query/view/\(storefront)/favorites")
-            library = root.allItems.compactMap { item in
-                guard let name = item.title, let path = item.action?.url else { return nil }
-                return Destination(name: name, symbol: Self.symbol(for: item.action?.screenType), path: path)
+            var found: [String: Destination] = [:]
+            for item in root.allItems {
+                guard let name = item.title, let path = item.action?.url,
+                      let screenType = item.action?.screenType else { continue }
+                let destination = Destination(
+                    name: name, symbol: Self.symbol(for: screenType), path: path)
+                if screenType == "libraryPlaylists" {
+                    playlistRoot = destination
+                } else {
+                    found[screenType] = destination
+                }
+            }
+            // The order Apple uses, rather than whatever the response happens to
+            // list first.
+            for key in ["libraryAlbums", "libraryTracks", "libraryArtists",
+                        "favoritesRecordings", "favoritesWorks", "favoritesComposers"] {
+                if let destination = found[key] { entries.append(destination) }
             }
         } catch {
             // A missing sidebar should not stop the app from showing Home.
-            library = []
         }
+
+        library = entries
+        await loadPlaylists(root: playlistRoot)
     }
+
+    /// The user's own playlists, listed individually the way the official app
+    /// shows them rather than hidden behind one row.
+    /// Playlists come from the personal Apple Music library, not from the
+    /// classical catalog — `favorites/playlists` genuinely answers "Nenhuma
+    /// playlist", because classical keeps no playlist library of its own.
+    private func loadPlaylists(root: Destination?) async {
+        playlists = [Destination(name: "Playlists da biblioteca",
+                                 symbol: "music.note.list",
+                                 path: LibraryRoute.playlists)]
+    }
+
+
 
     private static func symbol(for screenType: String?) -> String {
         switch screenType {
@@ -78,6 +116,12 @@ final class AppModel {
     func go(to destination: Destination) async {
         history.append(destination)
         await reload()
+    }
+
+    /// Follows a section's "see all" button.
+    func go(toAction action: Action, named title: String) async {
+        guard let path = action.url else { return }
+        await go(to: Destination(name: title, symbol: "square.grid.2x2", path: path))
     }
 
     func open(_ item: Item) async {
@@ -173,7 +217,15 @@ final class AppModel {
         error = nil
         defer { isLoading = false }
         do {
-            screen = try await ClassicalAPI.shared.screen(at: path)
+            if path == LibraryRoute.playlists {
+                screen = try await LibraryAPI.shared.playlistsScreen()
+            } else if path.hasPrefix(LibraryRoute.playlistPrefix) {
+                let id = String(path.dropFirst(LibraryRoute.playlistPrefix.count))
+                screen = try await LibraryAPI.shared.playlistScreen(
+                    id: id, name: current?.name ?? "Playlist")
+            } else {
+                screen = try await ClassicalAPI.shared.screen(at: path)
+            }
         } catch {
             self.error = error.localizedDescription
             screen = nil
