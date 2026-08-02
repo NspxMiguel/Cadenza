@@ -22,7 +22,7 @@ struct Screen: Decodable {
         screenType = try c.decodeIfPresent(String.self, forKey: .screenType)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         publicUrl = try c.decodeIfPresent(String.self, forKey: .publicUrl)
-        sections = (try? c.decodeIfPresent([Section].self, forKey: .sections)) as? [Section] ?? []
+        sections = (try? c.decodeIfPresent([Section].self, forKey: .sections)) ?? []
     }
 
     /// Every item on the screen, flattened — most views want this, not the
@@ -41,7 +41,7 @@ struct Section: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         type = try c.decodeIfPresent(String.self, forKey: .type)
         priority = try c.decodeIfPresent(String.self, forKey: .priority)
-        components = (try? c.decodeIfPresent([Component].self, forKey: .components)) as? [Component] ?? []
+        components = (try? c.decodeIfPresent([Component].self, forKey: .components)) ?? []
     }
 }
 
@@ -58,7 +58,7 @@ struct Component: Decodable {
         type = try c.decodeIfPresent(String.self, forKey: .type)
         itemType = try c.decodeIfPresent(String.self, forKey: .itemType)
         title = try c.decodeIfPresent(String.self, forKey: .title)
-        items = (try? c.decodeIfPresent([Item].self, forKey: .items)) as? [Item] ?? []
+        items = (try? c.decodeIfPresent([Item].self, forKey: .items)) ?? []
     }
 }
 
