@@ -798,45 +798,158 @@ struct ArtworkPlaceholder: View {
 
 // MARK: - Settings
 
-/// Where the quality ceiling is chosen — and explained when it cannot be lifted.
+/// Tabbed the way macOS settings are: one subject per tab, grouped sections
+/// inside, and a fixed size so the window never resizes as tabs change.
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            PlaybackSettings()
+                .tabItem { Label("Reprodução", systemImage: "play.circle") }
+            ScoreSettings()
+                .tabItem { Label("Partituras", systemImage: "music.quarternote.3") }
+            StorageSettings()
+                .tabItem { Label("Armazenamento", systemImage: "internaldrive") }
+            AboutSettings()
+                .tabItem { Label("Sobre", systemImage: "info.circle") }
+        }
+        .frame(width: 540, height: 430)
+    }
+}
+
+// MARK: Playback
+
+struct PlaybackSettings: View {
     @State private var playback = Playback.shared
 
     var body: some View {
         Form {
-            Picker("Motor de áudio", selection: Binding(
-                get: { playback.preference },
-                set: { playback.preference = $0 }
-            )) {
-                ForEach(Playback.Preference.allCases, id: \.self) { option in
-                    Text(option.label).tag(option)
+            Section {
+                Picker("Motor de áudio", selection: Binding(
+                    get: { playback.preference },
+                    set: { playback.preference = $0 }
+                )) {
+                    ForEach(Playback.Preference.allCases, id: \.self) { option in
+                        Text(option.label).tag(option)
+                    }
                 }
+                .pickerStyle(.inline)
+
+                LabeledContent("Reproduzindo em") {
+                    HStack(spacing: 6) {
+                        Text(playback.active.ceiling.rawValue)
+                        if playback.active.ceiling.isLossless {
+                            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Qualidade")
+            } footer: {
+                Text("O motor compatível reproduz pelo WebKit, limitado a 256 kbps AAC. "
+                     + "Lossless e Spatial Audio exigem MusicKit nativo.")
+                .font(.caption).foregroundStyle(.secondary)
             }
-            .pickerStyle(.radioGroup)
 
-            Divider().padding(.vertical, 4)
-
-            LabeledContent("Reproduzindo em") {
-                Text(playback.active.ceiling.rawValue).foregroundStyle(.secondary)
+            if !playback.losslessAvailable {
+                Section("Lossless") { LosslessSetupSection() }
             }
-
-            if playback.losslessAvailable {
-                Label("Lossless ativo neste build.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
-            } else {
-                LosslessSetupSection()
-            }
-
-            Divider().padding(.vertical, 4)
-            ScoreAISection()
-
-            Divider().padding(.vertical, 4)
-            CacheSection()
         }
         .formStyle(.grouped)
-        // The panel grew past a fixed height once the beta section landed, and
-        // a Form does not scroll on its own.
-        .frame(width: 540, height: 620)
+        .scrollContentBackground(.hidden)
+    }
+}
+
+// MARK: Scores
+
+struct ScoreSettings: View {
+    var body: some View {
+        Form {
+            Section {
+                ScoreAISection()
+            } header: {
+                Text("Reconhecimento de gravuras")
+            } footer: {
+                Text("As partituras de domínio público vêm do acervo OpenScore (CC0) e "
+                     + "não dependem desta opção.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+}
+
+// MARK: Storage
+
+struct StorageSettings: View {
+    @State private var size: Int64 = 0
+    @State private var clearing = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Cache de telas") {
+                    Text(size > 0
+                         ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                         : "vazio")
+                    .foregroundStyle(.secondary)
+                }
+                Button("Limpar cache") {
+                    clearing = true
+                    Task {
+                        await ScreenCache.shared.clear()
+                        size = await ScreenCache.shared.size()
+                        clearing = false
+                    }
+                }
+                .disabled(clearing || size == 0)
+            } header: {
+                Text("Cache")
+            } footer: {
+                Text("As telas visitadas são guardadas para abrir na hora e atualizar em "
+                     + "segundo plano. Limpar não apaga nada da sua biblioteca.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .task { size = await ScreenCache.shared.size() }
+    }
+}
+
+// MARK: About
+
+struct AboutSettings: View {
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1"
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            if let icon = NSApp.applicationIconImage {
+                Image(nsImage: icon)
+                    .resizable().frame(width: 84, height: 84)
+            }
+            Text("Cadenza").font(.cadenzaTitle(26))
+            Text("Versão \(version)").font(.callout).foregroundStyle(.secondary)
+
+            Text("Um cliente nativo para o Apple Music Classical, que a Apple nunca "
+                 + "lançou para o Mac.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 44)
+            .padding(.top, 2)
+
+            Link("Código-fonte no GitHub",
+                 destination: URL(string: "https://github.com/NspxMiguel/Cadenza")!)
+            .font(.callout)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
