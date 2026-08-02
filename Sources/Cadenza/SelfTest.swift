@@ -116,6 +116,13 @@ enum SelfTest {
             say("  (defina CADENZA_SELFTEST_AUDIO para testar)")
         }
 
+        if let destino = ProcessInfo.processInfo.environment["CADENZA_SELFTEST_CLOUD"] {
+            say("")
+            say("=== nuvem ===")
+            let linhas = await cloudCheck(URL(fileURLWithPath: destino))
+            for l in linhas { say(l) }
+        }
+
         say("")
         say("=== navegação ===")
         for line in await navigationCheck() { say(line) }
@@ -131,6 +138,23 @@ enum SelfTest {
     /// Selecting a row and having the page not change is invisible to every
     /// other test here: the model is fine in isolation and the screen is fine
     /// in isolation, and only the sequence shows the fault.
+    /// Copies the library into a folder and reads back what landed there.
+    @MainActor
+    private static func cloudCheck(_ destino: URL) async -> [String] {
+        var linhas: [String] = []
+        CloudSync.shared.useFolderForTesting(destino)
+        await CloudSync.shared.push()
+        linhas.append("push: " + (CloudSync.shared.status ?? "sem status"))
+        let pasta = destino.appendingPathComponent("Cadenza/Músicas")
+        let arquivos = (try? FileManager.default.contentsOfDirectory(atPath: pasta.path)) ?? []
+        linhas.append("na pasta: \(arquivos.sorted().joined(separator: ", "))")
+        let manifesto = destino.appendingPathComponent("Cadenza/biblioteca.json")
+        linhas.append("manifesto: \(FileManager.default.fileExists(atPath: manifesto.path) ? "sim" : "NÃO")")
+        await CloudSync.shared.push()
+        linhas.append("push de novo: " + (CloudSync.shared.status ?? "sem status"))
+        return linhas
+    }
+
     @MainActor
     private static func navigationCheck() async -> [String] {
         var lines: [String] = []

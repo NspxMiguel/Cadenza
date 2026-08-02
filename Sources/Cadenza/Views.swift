@@ -1549,6 +1549,7 @@ struct ScoreSettings: View {
 // MARK: Storage
 
 struct StorageSettings: View {
+    @State private var cloud = CloudSync.shared
     @State private var size: Int64 = 0
     @State private var clearing = false
 
@@ -1575,6 +1576,43 @@ struct StorageSettings: View {
             } footer: {
                 Text("As telas visitadas são guardadas para abrir na hora e atualizar em "
                      + "segundo plano. Limpar não apaga nada da sua biblioteca.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if let folder = cloud.folder {
+                    LabeledContent("Pasta") {
+                        Text(folder.lastPathComponent).foregroundStyle(.secondary)
+                    }
+                    if let last = cloud.lastSync {
+                        LabeledContent("Última cópia") {
+                            Text(last.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        Button("Enviar para a nuvem") { Task { await cloud.push() } }
+                        Button("Trazer da nuvem") { Task { await cloud.pull() } }
+                        Spacer()
+                        Button("Esquecer pasta") { cloud.forget() }.buttonStyle(.link)
+                    }
+                    if let status = cloud.status {
+                        Text(status).font(.callout).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button("Escolher pasta sincronizada…") { cloud.chooseFolder() }
+                    if !CloudSync.knownServices().isEmpty {
+                        Text("Encontrei aqui: "
+                             + CloudSync.knownServices().map(\.name).joined(separator: ", "))
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+            } header: {
+                Text("Músicas locais na nuvem")
+            } footer: {
+                Text("Sem login: o Google Drive, o iCloud Drive e o Dropbox já aparecem "
+                     + "como pastas no Mac, e o Cadenza copia sua biblioteca para a que "
+                     + "você escolher. Nada é apagado — só copiado.")
                 .font(.caption).foregroundStyle(.secondary)
             }
         }
