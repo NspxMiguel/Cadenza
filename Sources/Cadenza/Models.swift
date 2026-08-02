@@ -142,12 +142,18 @@ struct Item: Decodable, Identifiable {
     let inFavorites: Bool?
     let image: Artwork?
     let action: Action?
+    /// What to hand the player. Its `type` is already MusicKit's vocabulary —
+    /// `songs`, `albums`, `playlists`.
+    let payload: Payload?
 
     enum CodingKeys: String, CodingKey {
         case catalogID = "id"
         case type, title, addition, subtitle, workSubheading
-        case durationMs, inLibrary, inFavorites, image, action
+        case durationMs, inLibrary, inFavorites, image, action, payload
     }
+
+    /// Playable when the catalog gave us something to queue.
+    var playable: Payload? { payload }
 
     var isTrack: Bool { type == "track" }
     var isHeading: Bool { type == "subheading" }
@@ -157,6 +163,12 @@ struct Item: Decodable, Identifiable {
         let total = ms / 1000
         return String(format: "%d:%02d", total / 60, total % 60)
     }
+}
+
+/// A queue descriptor straight from the catalog.
+struct Payload: Decodable {
+    let id: String
+    let type: String
 }
 
 /// The work a track belongs to.

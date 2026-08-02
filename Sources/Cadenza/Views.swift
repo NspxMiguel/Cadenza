@@ -11,7 +11,13 @@ struct RootView: View {
             Sidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
         } detail: {
-            ScreenView(model: model)
+            VStack(spacing: 0) {
+                ScreenView(model: model)
+                NowPlayingBar()
+            }
+            .overlay(alignment: .bottomLeading) {
+                EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -25,11 +31,17 @@ struct RootView: View {
             }
         }
         .task {
-            if model.needsLogin { showingLogin = true } else { await model.start() }
+            if model.needsLogin {
+                showingLogin = true
+            } else {
+                WebKitEngine.shared.start()
+                await model.start()
+            }
         }
         .sheet(isPresented: $showingLogin) {
             LoginSheet {
                 showingLogin = false
+                WebKitEngine.shared.start()
                 Task { await model.start() }
             }
         }
@@ -236,6 +248,14 @@ struct TrackListView: View {
         }
     }
 
+    private func play(_ item: Item) {
+        guard let payload = item.playable else {
+            WebKitEngine.shared.log("linha sem payload: \(item.title ?? "?")")
+            return
+        }
+        Task { try? await WebKitEngine.shared.play(id: payload.id, kind: payload.type) }
+    }
+
     var body: some View {
         List {
             ForEach(numbered, id: \.item.id) { entry in
@@ -243,6 +263,8 @@ struct TrackListView: View {
                     WorkHeadingRow(item: entry.item, model: model)
                 } else {
                     TrackRow(item: entry.item, number: entry.number)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { play(entry.item) }
                 }
             }
         }
@@ -281,12 +303,25 @@ struct TrackRow: View {
     let item: Item
     let number: Int?
 
+    private var isCurrent: Bool {
+        item.playable?.id == WebKitEngine.shared.nowPlaying?.trackID
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Text(number.map(String.init) ?? "")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .frame(width: 26, alignment: .trailing)
+            Group {
+                if isCurrent {
+                    Image(systemName: WebKitEngine.shared.status == .playing
+                          ? "speaker.wave.2.fill" : "speaker.fill")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                } else {
+                    Text(number.map(String.init) ?? "")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(width: 26, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title ?? "—").font(.body).lineLimit(1)
@@ -307,5 +342,75 @@ struct TrackRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Now playing
+
+/// The transport. It also states the engine's ceiling when the recording on
+/// offer is better than what this engine can deliver — the honest alternative
+/// to implying a quality the app cannot produce.
+struct NowPlayingBar: View {
+    private var engine: WebKitEngine { WebKitEngine.shared }
+
+    var body: some View {
+        if let track = engine.nowPlaying {
+            Divider()
+            HStack(spacing: 14) {
+                AsyncImage(url: track.artworkURL) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Rectangle().fill(.quaternary)
+                }
+                .frame(width: 42, height: 42)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(track.title).font(.callout).lineLimit(1)
+                    Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+
+                Spacer(minLength: 16)
+
+                if track.duration > 0 {
+                    Text("\(clock(engine.position)) / \(clock(track.duration))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(engine.ceiling.rawValue)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+                    .help(engine.ceiling.isLossless
+                          ? "Reproduzindo sem perdas"
+                          : "Este motor é limitado a 256 kbps AAC")
+
+                HStack(spacing: 14) {
+                    Button { engine.skipBackward() } label: {
+                        Image(systemName: "backward.fill")
+                    }
+                    Button { engine.togglePlayPause() } label: {
+                        Image(systemName: engine.status == .playing ? "pause.fill" : "play.fill")
+                            .frame(width: 16)
+                    }
+                    Button { engine.skipForward() } label: {
+                        Image(systemName: "forward.fill")
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.title3)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
