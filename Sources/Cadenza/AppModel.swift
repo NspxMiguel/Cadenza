@@ -61,7 +61,12 @@ final class AppModel {
             // but not for songs — those live in a playlist Apple keeps, mixed
             // across genres. This is that playlist, kept to classical.
             Destination(name: "Músicas favoritas", symbol: "star",
-                        path: LibraryRoute.favouriteSongs)
+                        path: LibraryRoute.favouriteSongs),
+            // Files on this Mac. Not part of Apple's library at all, which is
+            // exactly why it belongs here: nothing else in the app can reach
+            // a recording that was never on the service.
+            Destination(name: "Músicas locais", symbol: "internaldrive",
+                        path: LocalRoute.path)
         ]
         var playlistRoot: Destination?
 
@@ -250,6 +255,13 @@ final class AppModel {
         // Stale-while-revalidate: show what we already have, then refresh
         // behind it. A spinner appears only when there is nothing to show.
         extraItems = []
+        // The local library is already in memory, so it renders at once and
+        // has nothing to revalidate behind it.
+        if path == LocalRoute.path {
+            screen = LocalLibrary.shared.screen()
+            isLoading = false
+            return
+        }
         if let cached = await ClassicalAPI.shared.cachedScreen(at: path) {
             screen = cached
             isLoading = false
@@ -260,7 +272,9 @@ final class AppModel {
         defer { isLoading = false }
 
         do {
-            if path == LibraryRoute.favouriteSongs {
+            if path == LocalRoute.path {
+                screen = LocalLibrary.shared.screen()
+            } else if path == LibraryRoute.favouriteSongs {
                 screen = try await LibraryAPI.shared.favouriteSongsScreen()
             } else if path == LibraryRoute.playlists {
                 screen = try await LibraryAPI.shared.playlistsScreen()

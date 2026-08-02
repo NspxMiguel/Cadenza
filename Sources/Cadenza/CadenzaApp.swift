@@ -11,6 +11,12 @@ struct CadenzaApp: App {
         }
         .defaultSize(width: 1280, height: 820)
         .windowToolbarStyle(.unified)
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("Importar músicas…") { LocalLibrary.shared.promptForFiles() }
+                    .keyboardShortcut("i", modifiers: .command)
+            }
+        }
 
         Settings { SettingsView() }
     }
@@ -18,6 +24,17 @@ struct CadenzaApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Score matching and local import have no interface to inspect: a
+        // wrong score renders as convincingly as a right one. This runs both
+        // against known cases and reports, then leaves.
+        if ProcessInfo.processInfo.environment["CADENZA_SELFTEST"] != nil {
+            Task {
+                await SelfTest.run()
+                exit(0)
+            }
+            return
+        }
+
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NowPlayingCenter.shared.activate()

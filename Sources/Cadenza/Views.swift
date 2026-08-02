@@ -28,7 +28,7 @@ struct RootView: View {
             // A write that succeeds silently is indistinguishable from one that
             // failed silently, so every one of them says what it did.
             .overlay(alignment: .top) {
-                if let notice = PlaylistStore.shared.notice {
+                if let notice = LocalLibrary.shared.notice ?? PlaylistStore.shared.notice {
                     Text(notice)
                         .font(.callout)
                         .padding(.horizontal, 14).padding(.vertical, 9)
@@ -38,7 +38,7 @@ struct RootView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(.snappy, value: PlaylistStore.shared.notice)
+            .animation(.snappy, value: LocalLibrary.shared.notice ?? PlaylistStore.shared.notice)
         }
         .searchable(text: Binding(
             get: { model.searchTerm },
@@ -53,6 +53,17 @@ struct RootView: View {
                 }
                 .disabled(!model.canGoBack)
                 .help("Voltar")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                if model.current?.path == LocalRoute.path {
+                    Button {
+                        LocalLibrary.shared.promptForFiles()
+                    } label: {
+                        Label("Importar", systemImage: "plus")
+                    }
+                    .help("Importar arquivos de música deste Mac")
+                }
             }
 
             ToolbarItem(placement: .primaryAction) {
@@ -251,10 +262,26 @@ struct ScreenView: View {
                                       loadingMore: model.isLoadingMore, model: model)
                     }
                 } else if screen.sections.isEmpty, let page = screen.firstPage {
-                    ContentUnavailableView(
-                        page.heading ?? screen.title ?? "Vazio",
-                        systemImage: "music.note.list",
-                        description: Text(page.description ?? ""))
+                    ContentUnavailableView {
+                        Label(page.heading ?? screen.title ?? "Vazio",
+                              systemImage: screen.screenType == LocalRoute.screenType
+                                ? "internaldrive" : "music.note.list")
+                    } description: {
+                        Text(page.description ?? "")
+                    } actions: {
+                        if screen.screenType == LocalRoute.screenType {
+                            Button("Importar músicas…") {
+                                LocalLibrary.shared.promptForFiles()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Text("MP3, AAC, ALAC, FLAC, WAV, AIFF, CAF, Ogg e mais. "
+                                 + "Cada arquivo é testado ao importar; o que este "
+                                 + "Mac não decodificar é informado.")
+                                .font(.caption).foregroundStyle(.tertiary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 380)
+                        }
+                    }
                 } else {
                     VStack(spacing: 0) {
                         if let header = screen.header, header.isDecorative {
@@ -482,7 +509,23 @@ struct TrackMenu: View {
     private var catalogID: String? { item.playable?.id }
 
     var body: some View {
-        if let catalogID {
+        // A local file is not in anyone's catalog: favouriting it, adding it to
+        // an Apple playlist or to the Apple library are all meaningless, and
+        // offering them would be offering actions that cannot work.
+        if item.playable?.type == LocalRoute.payloadType, let id = catalogID {
+            Button("Mostrar no Finder") {
+                if let track = LocalLibrary.shared.track(id: id),
+                   let url = LocalLibrary.shared.url(for: track) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+            Divider()
+            Button("Remover da lista", role: .destructive) {
+                guard let track = LocalLibrary.shared.track(id: id) else { return }
+                LocalLibrary.shared.remove(track)
+                Task { await model.reload() }
+            }
+        } else if let catalogID {
             Button(Favourites.shared.isFavourite(item) ? "Desfavoritar" : "Favoritar") {
                 Favourites.shared.toggle(item)
             }
@@ -1451,31 +1494,31 @@ struct ScorePanel: View {
     @State private var loadedFor: String?
     @State private var offset: TimeInterval = 0
     @State private var ai = ScoreAI.shared
+    @AppStorage("cadenza.score.zoom") private var zoom = 40
+    @AppStorage("cadenza.score.following") private var following = true
 
     /// Whether Apple provides timed lyrics for this recording. Most of the
-    /// classical catalog does not, and an empty column would only take space.
+    /// classical catalog does not, and an empty strip would only take space.
     @State private var hasTimedLyrics = false
 
     var body: some View {
         VStack(spacing: 0) {
             if let musicXML, let track = engine.nowPlaying {
-                // The engraving prints the words under the notes, but statically.
-                // The timed lyrics beside it show which line is sounding now,
-                // which is the part the printed page cannot do.
+                ScoreView(musicXML: musicXML,
+                          position: engine.position,
+                          duration: track.duration,
+                          offset: offset,
+                          humdrum: match?.format == .humdrum,
+                          zoom: zoom,
+                          following: following,
+                          onAnchor: anchor)
+
+                // The engraved words sit under their own notes and do not move.
+                // This is the line being sung *now*, and its translation —
+                // printed under the system the way a score prints its text,
+                // rather than in a column off to one side.
                 if hasTimedLyrics {
-                    HSplitView {
-                        ScoreView(musicXML: musicXML,
-                                  position: engine.position,
-                                  duration: track.duration,
-                                  offset: offset)
-                        LyricsPanel().frame(minWidth: 230, idealWidth: 280)
-                    }
-                } else {
-                    ScoreView(musicXML: musicXML,
-                              position: engine.position,
-                              duration: track.duration,
-                              offset: offset,
-                              onAnchor: anchor)
+                    SungLine(offset: offset)
                 }
 
                 Divider()
@@ -1485,8 +1528,31 @@ struct ScorePanel: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .help(match.title)
                     }
                     Spacer()
+
+                    Toggle(isOn: $following) {
+                        Label("Seguir", systemImage: "scope")
+                    }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Rolar a página junto com a música")
+
+                    Divider().frame(height: 12)
+
+                    Button { zoom = max(20, zoom - 6) } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(zoom <= 20)
+                    Button { zoom = min(80, zoom + 6) } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(zoom >= 80)
+
+                    Divider().frame(height: 12)
 
                     // Calibration, phrased as what it is: click a note when you
                     // hear it and the alignment corrects itself from there.
@@ -1626,7 +1692,7 @@ struct ScorePanel: View {
         hasTimedLyrics = await !lyrics.isEmpty
         guard let score = await found else { return }
         match = score
-        musicXML = await ScoreService.shared.musicXML(for: score)
+        musicXML = await ScoreService.shared.contents(for: score)
     }
 }
 
@@ -1672,6 +1738,89 @@ struct QueueList: View {
                 .listStyle(.inset)
             }
         }
+    }
+}
+
+/// The line being sung right now, printed under the score.
+///
+/// A printed score already carries its text, engraved under the notes it
+/// belongs to — but statically, and only where the corpus supplies it. This is
+/// the other half: which line is sounding at this moment, and what it means,
+/// on one strip under the system rather than in a column to the side. Side by
+/// side, the eye has to choose between the notes and the words; underneath, it
+/// reads them the way a singer does.
+struct SungLine: View {
+    var offset: TimeInterval = 0
+
+    private var engine: any Player { Playback.shared.active }
+
+    @State private var lines: [LyricLine] = []
+    @State private var loadedFor: String?
+    @State private var translations = Translations()
+    @State private var pendingTexts: [PendingLine] = []
+    @State private var translationConfig: TranslationSession.Configuration?
+
+    private var current: LyricLine? {
+        lines.first { $0.contains(max(0, engine.position + offset)) }
+    }
+
+    var body: some View {
+        Group {
+            if let line = current {
+                VStack(spacing: 2) {
+                    Text(line.text)
+                        .font(.system(size: 16, weight: .medium, design: .serif))
+                        .multilineTextAlignment(.center)
+
+                    if let translated = translations[line.id], translated != line.text {
+                        Text(translated)
+                            .font(.system(size: 13, design: .serif))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .opacity(0.6)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 9)
+                .transition(.opacity)
+                .id(line.id)
+            } else {
+                // Between lines the strip stays, empty. Letting it collapse
+                // would make the score jump every few seconds.
+                Color.clear.frame(height: 1)
+            }
+        }
+        .frame(minHeight: 34)
+        .background(.quaternary.opacity(0.25))
+        .animation(.easeOut(duration: 0.25), value: current?.id)
+        .task(id: engine.nowPlaying?.trackID) { await load() }
+        // Apple's on-device translator: the text never leaves this Mac. The
+        // source language is left unset so the framework identifies it — a Lied
+        // is German, an aria Italian, and the catalog never says which.
+        .translationTask(translationConfig) { [store = translations, pending = pendingTexts] session in
+            var mapped: [(UUID, String)] = []
+            for entry in pending {
+                guard let response = try? await session.translate(entry.text) else { continue }
+                mapped.append((entry.id, response.targetText))
+            }
+            let finished = mapped
+            await store.apply(finished)
+        }
+    }
+
+    private func load() async {
+        guard let id = engine.nowPlaying?.trackID, !id.isEmpty, id != loadedFor else { return }
+        loadedFor = id
+        translations.reset()
+        lines = await LyricsService.shared.lyrics(forTrack: id)
+        pendingTexts = lines.map { PendingLine(id: $0.id, text: $0.text) }
+        guard !lines.isEmpty, let code = AppSettings.storedLanguageCode else {
+            translationConfig = nil
+            return
+        }
+        translationConfig = TranslationSession.Configuration(
+            source: nil, target: Locale.Language(identifier: code))
     }
 }
 

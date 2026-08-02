@@ -66,6 +66,14 @@ final class Playback {
     /// Starts a track within its surroundings, so the queue holds the rest of
     /// the album or playlist and skipping forward has somewhere to go.
     func play(_ item: Item, within siblings: [Item]) {
+        // A local file has no catalog behind it and plays through a different
+        // engine entirely, so the routing decision happens before anything is
+        // queued.
+        if item.playable?.type == LocalRoute.payloadType {
+            playLocal(item, within: siblings)
+            return
+        }
+
         let ids = siblings.compactMap { $0.playable?.id }
         guard let id = item.playable?.id, let index = ids.firstIndex(of: id), ids.count > 1
         else {
@@ -116,10 +124,43 @@ final class Playback {
             duration: Double(item.durationMs ?? 0) / 1000)
     }
 
+    /// Switches to the local engine and plays a file from disk.
+    ///
+    /// Local playback is not a preference the user sets — it is dictated by
+    /// what was clicked, so it overrides the engine choice for as long as a
+    /// local track is playing and hands control back the moment a catalog
+    /// track is.
+    private func playLocal(_ item: Item, within siblings: [Item]) {
+        guard let id = item.playable?.id,
+              let track = LocalLibrary.shared.track(id: id) else { return }
+
+        let neighbours = siblings
+            .filter { $0.playable?.type == LocalRoute.payloadType }
+            .compactMap { $0.playable?.id }
+            .compactMap { LocalLibrary.shared.track(id: $0) }
+
+        if !(active is LocalEngine) {
+            active.stop()
+            active = LocalEngine.shared
+        }
+        pending = nil
+        LocalEngine.shared.play(local: track, within: neighbours)
+    }
+
     /// Starts a track, showing it immediately from what the catalog already
     /// told us rather than waiting for the engine to echo it back.
     func play(_ item: Item) {
+        if item.playable?.type == LocalRoute.payloadType {
+            playLocal(item, within: [item])
+            return
+        }
         guard item.playable != nil else { return }
+        // Coming back from a local file: the streaming engine has to be the
+        // active one again before anything is queued on it.
+        if active is LocalEngine {
+            active.stop()
+            applyPreference(force: true)
+        }
         showPending(item)
         let payload = item.playable!
         Task {
@@ -190,7 +231,7 @@ final class Playback {
         sleepDeadline = nil
     }
 
-    private func applyPreference() {
+    private func applyPreference(force: Bool = false) {
         let wantsLossless = switch preference {
         case .automatic: losslessAvailable
         case .lossless: losslessAvailable
@@ -198,7 +239,10 @@ final class Playback {
         }
 
         let next: any Player = wantsLossless ? MusicKitEngine.shared : WebKitEngine.shared
-        guard type(of: next) != type(of: active) else { return }
+        // `force` exists for the return from local playback: the engine that
+        // should be active is the one already named here, so nothing differs
+        // and the ordinary check would decline to switch back.
+        if !force, type(of: next) == type(of: active) { return }
         active.stop()
         active = next
     }
