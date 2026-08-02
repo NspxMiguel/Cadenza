@@ -34,7 +34,31 @@ final class TokenStore: @unchecked Sendable {
         }
     }
 
-    var hasUserToken: Bool { queue.sync { current["musicUserToken"] != nil } }
+    var hasUserToken: Bool { queue.sync { credentials != nil } }
+
+    /// Reads back what was harvested, falling back to disk so a fresh launch
+    /// can hit the API before the web view has finished booting.
+    var credentials: Credentials? {
+        queue.sync {
+            if current.isEmpty, let data = try? Data(contentsOf: url),
+               let disk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                current = disk
+            }
+            guard let dev = current["developerToken"] as? String,
+                  let user = current["musicUserToken"] as? String
+            else { return nil }
+            return Credentials(
+                developerToken: dev,
+                musicUserToken: user,
+                storefront: current["storefront"] as? String ?? "us")
+        }
+    }
+
+    struct Credentials: Sendable {
+        let developerToken: String
+        let musicUserToken: String
+        let storefront: String
+    }
 }
 
 extension ClassicalWebView {
