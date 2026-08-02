@@ -288,9 +288,23 @@ extension WebKitEngine {
           send({ kind: 'error', message: 'volume: ' + e });
         }
 
+        var artworkReported = false;
         var report = function () {
           try {
             var item = mk.nowPlayingItem;
+            if (item && !artworkReported) {
+              artworkReported = true;
+              var probe = [];
+              ['artworkURL', 'artwork'].forEach(function (k) {
+                probe.push(k + '=' + (typeof item[k]) +
+                  (item[k] && item[k].url ? '(url)' : ''));
+              });
+              if (item.attributes && item.attributes.artwork) {
+                probe.push('attributes.artwork.url=' +
+                  String(item.attributes.artwork.url).slice(0, 60));
+              }
+              send({ kind: 'trace', step: 'artwork', detail: probe.join(' | ') });
+            }
             send({
               kind: 'state',
               playing: !!mk.isPlaying,
@@ -304,13 +318,13 @@ extension WebKitEngine {
                 (item.attributes && item.attributes.artistName) || '') : '',
               artwork: (function () {
                 if (!item) return '';
-                if (item.artworkURL) return item.artworkURL;
                 var art = item.artwork || (item.attributes && item.attributes.artwork);
-                if (art && art.url) {
-                  return art.url.replace('{w}', '256').replace('{h}', '256')
-                                .replace('{f}', 'jpg').replace('{c}', 'bb');
-                }
-                return '';
+                var raw = item.artworkURL || (art && art.url) || '';
+                // Every one of these is a template. Returning artworkURL as-is
+                // yields a URL still containing {w}x{h}, which simply fails to
+                // load — the cover comes up blank with no error anywhere.
+                return raw.replace('{w}', '512').replace('{h}', '512')
+                          .replace('{f}', 'jpg').replace('{c}', 'bb');
               })()
             });
           } catch (e) {}

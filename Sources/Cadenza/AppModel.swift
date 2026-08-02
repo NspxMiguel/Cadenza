@@ -121,6 +121,52 @@ final class AppModel {
         return String(text[range])
     }
 
+    // MARK: Search
+
+    var searchTerm = "" {
+        didSet {
+            guard searchTerm != oldValue else { return }
+            searchTask?.cancel()
+            let term = searchTerm.trimmingCharacters(in: .whitespaces)
+            guard term.count >= 2 else {
+                if isSearching { Task { await exitSearch() } }
+                return
+            }
+            searchTask = Task { [weak self] in
+                // Debounced: the field fires on every keystroke.
+                try? await Task.sleep(for: .milliseconds(280))
+                guard !Task.isCancelled else { return }
+                await self?.runSearch(term)
+            }
+        }
+    }
+
+    private(set) var isSearching = false
+    private var searchTask: Task<Void, Never>?
+    private var historyBeforeSearch: [Destination] = []
+
+    private func runSearch(_ term: String) async {
+        guard let encoded = term.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed) else { return }
+        if !isSearching {
+            historyBeforeSearch = history
+            isSearching = true
+        }
+        history = [Destination(
+            name: "Busca", symbol: "magnifyingglass",
+            path: "/query/view/\(storefront)/browse-search?q=\(encoded)")]
+        await reload()
+    }
+
+    private func exitSearch() async {
+        isSearching = false
+        if !historyBeforeSearch.isEmpty {
+            history = historyBeforeSearch
+            historyBeforeSearch = []
+            await reload()
+        }
+    }
+
     func reload() async {
         guard let path = current?.path else { return }
         isLoading = true

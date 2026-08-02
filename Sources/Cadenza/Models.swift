@@ -84,6 +84,23 @@ struct Page: Decodable {
     var isEmptyState: Bool { items.isEmpty }
 }
 
+extension ScreenSection {
+    /// Sections arrive unlabelled — the official client supplies these names
+    /// from its own bundle, keyed by section type, so we do the same.
+    static func label(for type: String?) -> String? {
+        switch type {
+        case "composers": "Compositores"
+        case "artists": "Artistas"
+        case "works": "Obras"
+        case "recordings": "Gravações"
+        case "albums": "Álbuns"
+        case "playlists": "Playlists"
+        case "track-list", "tracks": "Faixas"
+        default: nil
+        }
+    }
+}
+
 struct ScreenSection: Decodable {
     let type: String?
     let priority: String?

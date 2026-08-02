@@ -19,6 +19,10 @@ struct RootView: View {
                 EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
             }
         }
+        .searchable(text: Binding(
+            get: { model.searchTerm },
+            set: { model.searchTerm = $0 }
+        ), placement: .sidebar, prompt: "Obras, compositores, gravações")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
@@ -170,7 +174,10 @@ struct ScreenView: View {
                 ForEach(Array(screen.sections.enumerated()), id: \.offset) { _, section in
                     ForEach(Array(section.components.enumerated()), id: \.offset) { _, component in
                         if !component.items.isEmpty {
-                            ShelfView(component: component, model: model)
+                            ShelfView(
+                                component: component,
+                                fallbackHeading: ScreenSection.label(for: section.type),
+                                model: model)
                         }
                     }
                 }
@@ -184,11 +191,12 @@ struct ScreenView: View {
 
 struct ShelfView: View {
     let component: Component
+    var fallbackHeading: String? = nil
     let model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let title = component.heading, !title.isEmpty {
+            if let title = component.heading ?? fallbackHeading, !title.isEmpty {
                 Text(title)
                     .font(.title2.weight(.semibold))
                     .padding(.horizontal, 24)
@@ -221,11 +229,8 @@ struct ItemCard: View {
                 switch phase {
                 case .success(let image):
                     image.resizable().aspectRatio(contentMode: .fill)
-                case .failure:
-                    Rectangle().fill(.quaternary)
-                        .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
                 default:
-                    Rectangle().fill(.quaternary)
+                    ArtworkPlaceholder(item: item)
                 }
             }
             .frame(width: width, height: isFeatured ? 236 : 176)
@@ -406,6 +411,7 @@ struct NowPlayingBar: View {
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: {
                     Rectangle().fill(.quaternary)
+                        .overlay(Image(systemName: "music.note").foregroundStyle(.secondary))
                 }
                 .frame(width: 42, height: 42)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -641,5 +647,49 @@ struct LyricsPanel: View {
         guard let id = engine.nowPlaying?.trackID, !id.isEmpty, id != loadedFor else { return }
         loadedFor = id
         lines = await LyricsService.shared.lyrics(forTrack: id)
+    }
+}
+
+// MARK: - Artwork placeholder
+
+/// Many catalog entries genuinely have no image — lesser-known composers,
+/// smaller ensembles, and every "see all" row. A blank grey box reads as a
+/// broken download, so this shows an initial and a fitting symbol instead.
+struct ArtworkPlaceholder: View {
+    let item: Item
+
+    private var symbol: String {
+        switch item.type {
+        case "artist": "person.fill"
+        case "work": "doc.text.fill"
+        case "album": "square.stack.fill"
+        case "playlist": "music.note.list"
+        case "recording": "waveform"
+        default: "music.note"
+        }
+    }
+
+    private var initial: String? {
+        guard let first = item.title?.trimmingCharacters(in: .whitespaces).first,
+              first.isLetter else { return nil }
+        return String(first).uppercased()
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [.secondary.opacity(0.28), .secondary.opacity(0.12)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+
+            if let initial {
+                Text(initial)
+                    .font(.system(size: 46, weight: .light, design: .serif))
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
