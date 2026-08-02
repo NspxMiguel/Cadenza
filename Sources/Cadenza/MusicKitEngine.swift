@@ -34,8 +34,23 @@ final class MusicKitEngine: Player {
     private(set) var isAvailable = false
     private(set) var unavailableReason: String?
 
+    /// Checks whether native MusicKit is reachable *without* asking for
+    /// anything. Requesting authorisation at launch made macOS show the Apple
+    /// Music permission dialog on every single start, which is intrusive for a
+    /// capability most builds cannot use anyway.
+    func probeQuietly() async -> Bool {
+        guard MusicAuthorization.currentStatus == .authorized else {
+            unavailableReason = "Acesso ao Apple Music ainda não autorizado. "
+                + "Escolha Lossless em Ajustes para conceder."
+            isAvailable = false
+            return false
+        }
+        return await probe()
+    }
+
     /// Attempts one real catalog request. Anything less would not distinguish a
-    /// missing entitlement from a missing subscription.
+    /// missing entitlement from a missing subscription. Prompts if needed, so
+    /// it runs only when the user has asked for lossless.
     func probe() async -> Bool {
         guard await MusicAuthorization.request() == .authorized else {
             unavailableReason = "Acesso ao Apple Music não autorizado."

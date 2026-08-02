@@ -56,9 +56,15 @@ actor LibraryAPI {
         guard let payload: Response<TrackItem> = try? await get(
             "/playlists/\(id)/tracks?limit=25") else { return false }
 
-        return payload.data.contains { entry in
+        let tracks = payload.data
+        guard !tracks.isEmpty else { return false }
+
+        let classical = tracks.filter { entry in
             (entry.attributes?.genreNames ?? []).contains { Self.readsAsClassical($0) }
         }
+        // Presence alone was too weak: a pop playlist with one crossover track
+        // was being kept. A playlist is classical when most of it is.
+        return Double(classical.count) / Double(tracks.count) >= 0.5
     }
 
     /// Genre names arrive localised — "Classical", "Música clássica",
@@ -190,9 +196,19 @@ actor LibraryAPI {
 
 // MARK: - Favourites
 
-/// Loving a track is a rating in Apple Music's vocabulary: value 1 on
-/// `/me/ratings`. The classical context menu does not expose it — its response
-/// carries only sharing and navigation — so this goes through the standard API.
+/// Favouriting goes through `/me/favorites`, which answers 202 Accepted.
+///
+/// `/me/ratings` was the first attempt and is the wrong concept: it writes an
+/// Apple Music "love", which reads back as value 1 and leaves the classical
+/// catalog's own `inFavorites` untouched. The classical context menu exposes no
+/// favourite action at all — its response carries only playback, sharing and
+/// navigation — so the standard endpoint is the only route.
+///
+/// Note the honest caveat: the write is accepted, but `inFavorites` on the
+/// classical side did not flip within seconds of it. Whether that is
+/// propagation delay or a separate store is not yet established, so the star
+/// reflects local intent immediately rather than waiting for a round trip that
+/// may never confirm.
 @MainActor
 @Observable
 final class Favourites {
@@ -225,21 +241,20 @@ final class Favourites {
     }
 
     private static func push(id: String, favourite: Bool) async {
-        guard let creds = TokenStore.shared.credentials,
-              let url = URL(string: "https://amp-api.music.apple.com/v1/me/ratings/songs/\(id)")
-        else { return }
+        guard let creds = TokenStore.shared.credentials else { return }
+
+        // The brackets must be percent-encoded; sent literally the API answers
+        // Bad Request, which reads like a wrong endpoint rather than a wrong
+        // parameter.
+        var components = URLComponents(string: "https://amp-api.music.apple.com/v1/me/favorites")
+        components?.percentEncodedQuery = "ids%5Bsongs%5D=\(id)"
+        guard let url = components?.url else { return }
 
         var request = URLRequest(url: url)
-        request.httpMethod = favourite ? "PUT" : "DELETE"
+        request.httpMethod = favourite ? "POST" : "DELETE"
         request.setValue("Bearer \(creds.developerToken)", forHTTPHeaderField: "Authorization")
         request.setValue(creds.musicUserToken, forHTTPHeaderField: "Music-User-Token")
         request.setValue("https://music.apple.com", forHTTPHeaderField: "Origin")
-
-        if favourite {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(
-                withJSONObject: ["type": "rating", "attributes": ["value": 1]])
-        }
 
         _ = try? await URLSession.shared.data(for: request)
     }

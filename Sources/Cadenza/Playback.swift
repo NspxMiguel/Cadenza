@@ -27,7 +27,17 @@ final class Playback {
     var preference: Preference = .automatic {
         didSet {
             UserDefaults.standard.set(preference.rawValue, forKey: Self.key)
-            applyPreference()
+            // Choosing lossless is the moment the user has asked for it, so
+            // this is where prompting for access belongs.
+            if preference == .lossless, !losslessAvailable {
+                Task {
+                    losslessAvailable = await MusicKitEngine.shared.probe()
+                    losslessDiagnosis = MusicKitEngine.shared.unavailableReason
+                    applyPreference()
+                }
+            } else {
+                applyPreference()
+            }
         }
     }
 
@@ -51,7 +61,9 @@ final class Playback {
     func start() async {
         WebKitEngine.shared.start()
 
-        losslessAvailable = await MusicKitEngine.shared.probe()
+        // Quiet at launch: asking here would prompt for Apple Music access every
+        // time the app opens, to test a capability most builds cannot use.
+        losslessAvailable = await MusicKitEngine.shared.probeQuietly()
         losslessDiagnosis = MusicKitEngine.shared.unavailableReason
         applyPreference()
 

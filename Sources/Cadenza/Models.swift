@@ -251,6 +251,14 @@ struct Item: Decodable, Identifiable {
     /// the descriptor can be recovered from the action instead.
     var playable: Payload? {
         if let payload { return payload }
+
+        // Search results describe a track with an id and a play-context action
+        // but no payload and no url, so neither branch below fires and the row
+        // does nothing at all when tapped. The id is enough to queue it.
+        if isTrack, let catalogID, action?.type == "play-context" {
+            return Payload(id: catalogID, type: "songs")
+        }
+
         guard let url = action?.url else { return nil }
         if let id = Self.capture(#"/playlist/(pl\.[A-Za-z0-9]+)"#, url) {
             return Payload(id: id, type: "playlists")

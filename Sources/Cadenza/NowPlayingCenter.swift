@@ -54,6 +54,16 @@ final class NowPlayingCenter {
         }
     }
 
+    /// MediaPlayer calls the request handler on its own queue. Built inside a
+    /// main-actor method the closure inherits that isolation, and the runtime
+    /// aborts the process the first time artwork is requested — a crash that
+    /// lands right after playback starts, which makes it look like a playback
+    /// bug. `nonisolated` keeps the closure free of the actor.
+    private nonisolated static func artwork(from image: NSImage) -> MPMediaItemArtwork {
+        let size = image.size
+        return MPMediaItemArtwork(boundsSize: size) { _ in image }
+    }
+
     private func publish() {
         let center = MPNowPlayingInfoCenter.default()
 
@@ -73,8 +83,7 @@ final class NowPlayingCenter {
         ]
 
         if let cached = artworkCache, cached.url == track.artworkURL {
-            let image = cached.image
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(from: cached.image)
         } else if let url = track.artworkURL, track.trackID != lastPublished {
             lastPublished = track.trackID
             Task { [weak self] in

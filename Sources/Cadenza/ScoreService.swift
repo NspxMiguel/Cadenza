@@ -77,24 +77,35 @@ actor ScoreService {
         let entries = await loadIndex()
         guard !entries.isEmpty else { return nil }
 
-        let haystack = Self.normalise(title + " " + (work ?? ""))
-        let performers = Self.normalise(artist)
+        let haystack = Self.normalise(title + " " + (work ?? "") + " " + artist)
 
         var best: (Entry, Int)?
         for entry in entries {
-            let composer = Self.normalise(entry.composer)
-            guard let surname = composer.split(separator: " ").first,
-                  surname.count > 3,
-                  performers.contains(surname) || haystack.contains(surname)
-            else { continue }
-
             let movement = Self.normalise(entry.movement)
-            let workName = Self.normalise(entry.work)
+            // The movement title is the strongest signal, and short ones are
+            // too common to trust on their own.
+            guard movement.count >= 5, haystack.contains(movement) else { continue }
 
-            var score = 0
-            if !movement.isEmpty, haystack.contains(movement) { score += movement.count }
-            if !workName.isEmpty, haystack.contains(workName) { score += workName.count / 2 }
-            guard score > 0 else { continue }
+            var score = movement.count
+
+            // Corroboration. The composer is often absent from a recording's
+            // performer list — "Julius Patzak & Jörg Demus" never says Schubert
+            // — so requiring it as a gate rejected correct matches. The work
+            // title corroborates just as well, compared by token because
+            // "Winterreise, D.911" is not a substring of "Winterreise: Die Post".
+            var corroborated = false
+            if let surname = Self.normalise(entry.composer).split(separator: " ").first,
+               surname.count > 3, haystack.contains(surname) {
+                score += 40
+                corroborated = true
+            }
+            for token in Self.normalise(entry.work).split(separator: " ")
+            where token.count >= 5 && haystack.contains(token) {
+                score += 25
+                corroborated = true
+                break
+            }
+            guard corroborated else { continue }
 
             if best == nil || score > best!.1 { best = (entry, score) }
         }
