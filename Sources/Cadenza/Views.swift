@@ -427,6 +427,7 @@ struct TrackRow: View {
 struct NowPlayingBar: View {
     private var engine: any Player { Playback.shared.active }
     @State private var showingLyrics = false
+    @State private var showingScore = false
 
     var body: some View {
         if let track = engine.nowPlaying {
@@ -484,6 +485,17 @@ struct NowPlayingBar: View {
                 .help("Letra")
                 .popover(isPresented: $showingLyrics, arrowEdge: .top) {
                     LyricsPanel().frame(width: 460, height: 420)
+                }
+
+                Button {
+                    showingScore.toggle()
+                } label: {
+                    Image(systemName: "music.quarternote.3")
+                }
+                .buttonStyle(.plain)
+                .help("Partitura")
+                .popover(isPresented: $showingScore, arrowEdge: .top) {
+                    ScorePanel().frame(width: 720, height: 560)
                 }
 
                 SleepTimerMenu()
@@ -897,4 +909,79 @@ extension Font {
 
     /// Work titles standing above their movements.
     static var cadenzaWork: Font { .system(size: 15, weight: .semibold, design: .serif) }
+}
+
+// MARK: - Score
+
+/// The engraved score, following the recording.
+///
+/// Coverage is the honest limit here: OpenScore's CC0 corpus is Lieder and
+/// string quartets, so most of the catalog has no score and the panel says so.
+/// Where it does exist, the MusicXML carries the sung text too, so the words
+/// arrive engraved under the notes rather than as a separate list.
+struct ScorePanel: View {
+    private var engine: any Player { Playback.shared.active }
+
+    @State private var musicXML: String?
+    @State private var match: ScoreService.Match?
+    @State private var searching = false
+    @State private var loadedFor: String?
+    @State private var offset: TimeInterval = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let musicXML, let track = engine.nowPlaying {
+                ScoreView(musicXML: musicXML,
+                          position: engine.position,
+                          duration: track.duration,
+                          offset: offset)
+
+                Divider()
+                HStack(spacing: 10) {
+                    if let match {
+                        Text("\(match.composer) — \(match.title)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Text("Ajuste").font(.caption).foregroundStyle(.tertiary)
+                    Button { offset -= 0.5 } label: { Image(systemName: "minus") }
+                    Text("\(offset, specifier: "%.1f")s")
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 40)
+                    Button { offset += 0.5 } label: { Image(systemName: "plus") }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+            } else if searching {
+                ProgressView("Procurando partitura…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "Sem partitura",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("Nenhuma gravura de domínio público foi encontrada "
+                                      + "para esta faixa. O acervo aberto cobre sobretudo "
+                                      + "Lieder e quartetos de cordas."))
+            }
+        }
+        .task(id: engine.nowPlaying?.trackID) { await load() }
+    }
+
+    private func load() async {
+        guard let track = engine.nowPlaying, track.trackID != loadedFor else { return }
+        loadedFor = track.trackID
+        musicXML = nil
+        match = nil
+        offset = 0
+        searching = true
+        defer { searching = false }
+
+        guard let found = await ScoreService.shared.score(
+            forTrack: track.title, artist: track.artist, work: nil) else { return }
+        match = found
+        musicXML = await ScoreService.shared.musicXML(for: found)
+    }
 }
