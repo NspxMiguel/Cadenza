@@ -5,6 +5,7 @@ let package = Package(
     name: "Cadenza",
     platforms: [.macOS("14.0")],
     targets: [
-        .executableTarget(name: "Cadenza", path: "Sources/Cadenza")
+        .executableTarget(name: "Cadenza", path: "Sources/Cadenza"),
+        .executableTarget(name: "MusicKitProbe", path: "Sources/MusicKitProbe"),
     ]
 )

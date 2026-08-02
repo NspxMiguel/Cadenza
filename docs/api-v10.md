@@ -95,3 +95,27 @@ Not reachable by crawling, but present in `ClassicalCore`/`ClassicalApi`:
 
 That last one is an attestation endpoint. It is not currently enforced on the
 endpoints used here — they answer 200 without it — but it is a standing risk.
+
+## Native MusicKit: tested, and gated
+
+`Sources/MusicKitProbe` settles whether native MusicKit playback works without a
+paid membership. Run `tools/build-probe.sh` and launch the bundle.
+
+Result on macOS 26.5, ad-hoc signed, no Apple team:
+
+```
+autorização: .authorized          TCC consent granted
+assinatura: ativa=true            MusicSubscription.current worked
+❌ .developerTokenRequestFailed   MusicCatalogResourceRequest failed
+```
+
+Authorization and the subscription check are free. Catalog access dies at
+developer-token issuance, which is exactly what the MusicKit capability gates.
+
+Note the limit of this test: the probe is ad-hoc signed with no Apple team at
+all. Signing with a free personal team and declaring the MusicKit entitlement is
+a different test and has not been run — it needs a codesigning identity in the
+keychain, and there is none.
+
+A developer token harvested from the web page does not help here: MusicKit for
+Swift obtains its own token and exposes no injection point.
