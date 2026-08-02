@@ -21,9 +21,12 @@ struct RootView: View {
         } detail: {
             VStack(spacing: 0) {
                 ScreenView(model: model)
-                // What the app is doing, when it is doing something slow. The
-                // player itself is in the title bar now, where Apple puts it.
                 StatusStrip()
+            }
+            // The player floats over the list rather than displacing it, which
+            // is why the pill has to be an overlay and not another row.
+            .overlay(alignment: .bottom) {
+                FloatingPlayer(expanded: $expanded)
             }
             .overlay(alignment: .bottomLeading) {
                 EngineHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
@@ -62,38 +65,16 @@ struct RootView: View {
                 .help("Voltar")
             }
 
-            // The arrangement Apple Music uses: transport at the left of the
-            // title bar, the display centred, everything else at the right.
-            ToolbarItem(placement: .navigation) { TransportControls() }
-
-            ToolbarItem(placement: .principal) { PlayerLCD(expanded: $expanded) }
-
-            // One item, not four. Declared separately, the toolbar treats each
-            // as droppable and folds them into the "»" overflow the moment the
-            // window is anything less than very wide — which is where the
-            // lyrics, score and queue buttons went.
+            // Nothing about playback lives up here. Music keeps the title bar
+            // for what the screen is, and the player floats over the content.
             ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 12) {
-                    if let context = model.playableContext {
-                        Button {
-                            Playback.shared.play(context: context,
-                                                 title: model.current?.name ?? "")
-                        } label: {
-                            Image(systemName: "play.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .help("Reproduzir tudo")
+                if model.current?.path == LocalRoute.path {
+                    Button {
+                        LocalLibrary.shared.promptForFiles()
+                    } label: {
+                        Image(systemName: "plus")
                     }
-                    if model.current?.path == LocalRoute.path {
-                        Button {
-                            LocalLibrary.shared.promptForFiles()
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.plain)
-                        .help("Importar arquivos de música deste Mac")
-                    }
-                    PlayerExtras()
+                    .help("Importar arquivos de música deste Mac")
                 }
             }
         }
@@ -309,6 +290,9 @@ struct ScreenView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Room for the floating player, so the last row of a list is not left
+        // sitting under it.
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 84) }
         // Dropping onto the populated list works too, not just the empty state.
         .localMusicDrop(isTargeted: $droppingHere)
         // No page title in the title bar: the screen already names itself in

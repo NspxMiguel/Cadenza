@@ -1,175 +1,149 @@
 import SwiftUI
 
-/// The player, arranged the way Apple Music arranges it.
+/// The player, copied from the one Apple Music actually ships.
 ///
-/// It sat at the bottom of the window before, which is Spotify's shape, not
-/// Apple's — and that one difference is most of why the app did not read as a
-/// Mac music app. Apple puts the transport at the left of the title bar and a
-/// rounded display in the centre carrying artwork, title, the times and the
-/// scrubber, with the extras on the right. Clicking that display opens the
-/// full Now Playing view.
+/// Two earlier attempts were both wrong, and wrong in instructive ways. A bar
+/// welded to the bottom edge is Spotify. A rectangular display in the title bar
+/// is iTunes. What Music does today is neither: a floating pill, centred, held
+/// off every edge, drifting over the content with the list visible around it.
 ///
-/// The parts are separate views because the toolbar takes them as separate
-/// items: one group leading, one principal, one trailing.
-struct TransportControls: View {
+/// The order inside it is Apple's: transport first, then the record — artwork,
+/// title, album and artist on a second line, the favourite star — then the
+/// controls that open something, and the volume at the end. A hairline of
+/// progress runs along the bottom of the pill itself rather than sitting
+/// anywhere as a separate scrubber.
+struct FloatingPlayer: View {
+    @Binding var expanded: Bool
+
     private var engine: any Player { Playback.shared.active }
 
+    @State private var hovering = false
+    @State private var dragFraction: Double?
+    @State private var showingLyrics = false
+    @State private var showingQueue = false
+    @State private var showingScore = false
+
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 0) {
+            transport
+                .padding(.leading, 20)
+                .padding(.trailing, 18)
+
+            record
+                .frame(maxWidth: .infinity)
+
+            extras
+                .padding(.leading, 16)
+                .padding(.trailing, 20)
+        }
+        .frame(height: 64)
+        .frame(maxWidth: 760)
+        .background {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.07), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(0.35), radius: 18, y: 6)
+        }
+        .overlay(alignment: .bottom) { progressHairline }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 22)
+        .padding(.bottom, 16)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+
+    // MARK: Transport
+
+    private var transport: some View {
+        HStack(spacing: 17) {
             Button { engine.setShuffle(!engine.shuffle) } label: {
                 Image(systemName: "shuffle")
                     .foregroundStyle(engine.shuffle
-                                     ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                     ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
             }
             .help(engine.shuffle ? "Aleatório ligado" : "Aleatório desligado")
 
             Button { engine.skipBackward() } label: {
-                Image(systemName: "backward.fill")
+                Image(systemName: "backward.fill").font(.title3)
             }
             .help("Anterior")
 
             Button { engine.togglePlayPause() } label: {
                 Image(systemName: engine.status == .playing ? "pause.fill" : "play.fill")
-                    .font(.title2)
-                    .frame(width: 22)
+                    .font(.system(size: 23))
+                    .frame(width: 24)
             }
             .help(engine.status == .playing ? "Pausar" : "Reproduzir")
 
             Button { engine.skipForward() } label: {
-                Image(systemName: "forward.fill")
+                Image(systemName: "forward.fill").font(.title3)
             }
             .help("Próxima")
 
             Button { engine.setRepeat(engine.repeatMode.next) } label: {
                 Image(systemName: engine.repeatMode.symbol)
                     .foregroundStyle(engine.repeatMode == .off
-                                     ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                                     ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
             }
             .help(engine.repeatMode.label)
         }
         .buttonStyle(.plain)
-        .font(.title3)
+        .font(.body)
         .disabled(Playback.shared.displayed == nil)
     }
-}
 
-/// The rounded display in the middle of the title bar.
-///
-/// Apple's shows artwork, two lines of text, the elapsed and remaining times
-/// and a scrubber that is always live. Ours adds one thing Apple's cannot:
-/// what the engine's ceiling actually is, since a recording offered as
-/// lossless does not arrive that way through WebKit.
-struct PlayerLCD: View {
-    @Binding var expanded: Bool
+    // MARK: The record
 
-    private var engine: any Player { Playback.shared.active }
-    @State private var hovering = false
-    @State private var dragFraction: Double?
+    @ViewBuilder
+    private var record: some View {
+        if let track = Playback.shared.displayed {
+            HStack(spacing: 10) {
+                artwork(track)
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
 
-    var body: some View {
-        Group {
-            if let track = Playback.shared.displayed {
-                content(track)
-            } else {
-                Text("Cadenza")
-                    .font(.cadenzaHeading)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .frame(width: 380, height: 44)
-        .background(.quaternary.opacity(hovering ? 0.55 : 0.35),
-                    in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7).strokeBorder(.quaternary, lineWidth: 0.5)
-        }
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-    }
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text(track.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(1)
 
-    private func content(_ track: NowPlaying) -> some View {
-        HStack(spacing: 9) {
-            artwork(track)
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .onTapGesture { expanded = true }
-                .help("Abrir Tocando Agora")
+                        if Favourites.shared.isFavourite(id: track.trackID) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tint)
+                        }
+                    }
 
-            VStack(spacing: 1) {
-                Text(track.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-
-                if Playback.shared.isPreparing {
-                    Text("Carregando…")
-                        .font(.system(size: 10))
+                    Text(Playback.shared.isPreparing ? "Carregando…" : track.artist)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                } else {
-                    HStack(spacing: 6) {
-                        Text(clock(engine.position))
-                            .font(.system(size: 9).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 30, alignment: .trailing)
+                        .lineLimit(1)
+                }
 
-                        scrubber(track)
+                Spacer(minLength: 0)
 
-                        Text("-" + clock(max(0, track.duration - engine.position)))
-                            .font(.system(size: 9).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32, alignment: .leading)
-                    }
+                // The elapsed time replaces the second line on hover in Music;
+                // here it simply appears at the edge, where it costs nothing.
+                if hovering, track.duration > 0 {
+                    Text("\(clock(engine.position)) / \(clock(track.duration))")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
                 }
             }
-
-            // Shown only when it is news: the recording is lossless and this
-            // engine cannot deliver it. Printing "256 kbps AAC" on every track
-            // was a permanent label taking room the title needed.
-            if engine.isQualityLimited {
-                Image(systemName: "exclamationmark.circle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-                    .help("Esta gravação é lossless no catálogo. Este motor "
-                          + "entrega 256 kbps AAC — compile com a sua conta em Ajustes.")
-            }
-        }
-        .padding(.horizontal, 7)
-    }
-
-    /// Dragging updates a local fraction and only seeks on release, so the
-    /// handle follows the pointer instead of fighting the engine's clock.
-    private func scrubber(_ track: NowPlaying) -> some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let fraction = dragFraction
-                ?? (track.duration > 0 ? min(1, engine.position / track.duration) : 0)
-
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary).frame(height: 3)
-                Capsule().fill(.tint).frame(width: max(0, width * fraction), height: 3)
-                if hovering || dragFraction != nil {
-                    Circle()
-                        .fill(.primary)
-                        .frame(width: 8, height: 8)
-                        .offset(x: max(0, width * fraction - 4))
-                }
-            }
-            .frame(height: 10)
+            .padding(.horizontal, 12)
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard track.duration > 0 else { return }
-                        dragFraction = min(1, max(0, value.location.x / width))
-                    }
-                    .onEnded { value in
-                        guard track.duration > 0 else { return }
-                        let target = min(1, max(0, value.location.x / width)) * track.duration
-                        engine.seek(to: target)
-                        dragFraction = nil
-                    }
-            )
+            .onTapGesture { expanded = true }
+            .help("Abrir Tocando Agora")
+        } else {
+            Text("Cadenza")
+                .font(.system(size: 13, weight: .medium, design: .serif))
+                .foregroundStyle(.tertiary)
         }
-        .frame(height: 10)
     }
 
     @ViewBuilder
@@ -180,7 +154,7 @@ struct PlayerLCD: View {
             } placeholder: {
                 Rectangle().fill(.quaternary)
                     .overlay(Image(systemName: "music.note")
-                        .font(.caption2).foregroundStyle(.secondary))
+                        .font(.caption).foregroundStyle(.secondary))
             }
             if Playback.shared.isPreparing {
                 Color.black.opacity(0.45)
@@ -189,63 +163,119 @@ struct PlayerLCD: View {
         }
     }
 
-    private func clock(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-}
+    // MARK: Extras
 
-/// Volume and the panels, on the right of the title bar.
-struct PlayerExtras: View {
-    private var engine: any Player { Playback.shared.active }
-
-    @State private var showingLyrics = false
-    @State private var showingScore = false
-    @State private var showingQueue = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if engine.supportsVolume {
-                HStack(spacing: 4) {
-                    Image(systemName: engine.volume == 0
-                          ? "speaker.slash.fill" : "speaker.fill")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Slider(value: Binding(get: { engine.volume },
-                                          set: { engine.setVolume($0) }), in: 0...1)
-                        .controlSize(.mini)
-                        .frame(width: 66)
+    private var extras: some View {
+        HStack(spacing: 15) {
+            Menu {
+                if let track = Playback.shared.displayed {
+                    Button(Favourites.shared.isFavourite(id: track.trackID)
+                           ? "Desfavoritar" : "Favoritar") {
+                        Favourites.shared.toggle(
+                            id: track.trackID,
+                            current: Favourites.shared.isFavourite(id: track.trackID))
+                    }
                 }
+                Button("Partitura") { showingScore = true }
+                Divider()
+                SleepTimerMenu()
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 16)
+            .popover(isPresented: $showingScore, arrowEdge: .top) {
+                ScorePanel().frame(width: 900, height: 660)
             }
 
             Button { showingLyrics.toggle() } label: {
                 Image(systemName: "quote.bubble")
             }
             .help("Letra")
-            .popover(isPresented: $showingLyrics, arrowEdge: .bottom) {
+            .popover(isPresented: $showingLyrics, arrowEdge: .top) {
                 LyricsPanel().frame(width: 440, height: 420)
-            }
-
-            Button { showingScore.toggle() } label: {
-                Image(systemName: "music.quarternote.3")
-            }
-            .help("Partitura")
-            .popover(isPresented: $showingScore, arrowEdge: .bottom) {
-                ScorePanel().frame(width: 900, height: 660)
             }
 
             Button { showingQueue.toggle() } label: {
                 Image(systemName: "list.bullet")
             }
             .help("A seguir")
-            .popover(isPresented: $showingQueue, arrowEdge: .bottom) {
+            .popover(isPresented: $showingQueue, arrowEdge: .top) {
                 QueueList().frame(width: 340, height: 400)
             }
 
-            SleepTimerMenu()
+            // Where Music puts AirPlay. Routing belongs to the system here —
+            // the engine plays through whatever output the Mac is using — so
+            // this opens Sound settings rather than pretending to a picker the
+            // app does not own.
+            Button {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Image(systemName: "airplayaudio")
+            }
+            .help("Saída de áudio (Ajustes do Sistema)")
+
+            if engine.supportsVolume {
+                HStack(spacing: 5) {
+                    Image(systemName: engine.volume == 0
+                          ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.caption)
+                    Slider(value: Binding(get: { engine.volume },
+                                          set: { engine.setVolume($0) }), in: 0...1)
+                        .controlSize(.mini)
+                        .frame(width: 62)
+                }
+            }
         }
         .buttonStyle(.plain)
         .font(.body)
+    }
+
+    // MARK: Progress
+
+    /// A hairline along the bottom edge of the pill, thickening into a real
+    /// scrubber under the pointer — which is how Music does it, and why the
+    /// player never needs to be taller than the record it is showing.
+    @ViewBuilder
+    private var progressHairline: some View {
+        if let track = Playback.shared.displayed, track.duration > 0 {
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let fraction = dragFraction
+                    ?? min(1, max(0, engine.position / track.duration))
+                let thickness: CGFloat = hovering || dragFraction != nil ? 5 : 2
+
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.quaternary)
+                    Rectangle().fill(.tint).frame(width: max(0, width * fraction))
+                }
+                .frame(height: thickness)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .contentShape(Rectangle().inset(by: -8))
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            dragFraction = min(1, max(0, value.location.x / width))
+                        }
+                        .onEnded { value in
+                            let target = min(1, max(0, value.location.x / width))
+                            engine.seek(to: target * track.duration)
+                            dragFraction = nil
+                        }
+                )
+                .animation(.easeOut(duration: 0.12), value: thickness)
+            }
+            .frame(height: 14)
+        }
+    }
+
+    private func clock(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 
