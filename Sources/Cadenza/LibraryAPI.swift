@@ -14,6 +14,7 @@ import Observation
 /// from the classical catalog. Kept out of any actor so both sides can name them.
 enum LibraryRoute {
     static let playlists = "cadenza-library:playlists"
+    static let favouriteSongs = "cadenza-library:favourite-songs"
     static let playlistPrefix = "cadenza-library:playlist:"
 
     static func playlist(_ id: String) -> String { playlistPrefix + id }
@@ -135,6 +136,68 @@ actor LibraryAPI {
                                      components: [Component(type: "shelf", items: items)])])
     }
 
+    /// The songs marked as favourites, kept to the classical ones.
+    ///
+    /// The classical sidebar has no favourite-tracks screen of its own: it
+    /// offers favourites for recordings, works and composers, while "Faixas"
+    /// is `libraryTracks` — what was added to the library, not what was loved.
+    /// Favourited songs land instead in a playlist Apple maintains and does not
+    /// let you edit, mixed across every genre. Filtering it is what makes it
+    /// belong in a classical app.
+    func favouriteSongsScreen() async throws -> Screen {
+        guard let id = try await favouritesPlaylistID() else {
+            return Screen(
+                screenType: "favouriteSongs", title: "Músicas favoritas",
+                firstPage: Page(type: "empty", items: [],
+                                heading: "Nenhuma música favorita",
+                                description: "Marque uma gravação com a estrela para vê-la aqui."))
+        }
+
+        let payload: Response<TrackItem> = try await get("/playlists/\(id)/tracks?limit=100")
+        let classical = payload.data.filter { entry in
+            (entry.attributes?.genreNames ?? []).contains { Self.readsAsClassical($0) }
+        }
+
+        let items = classical.map { entry -> Item in
+            let attributes = entry.attributes
+            return Item(
+                catalogID: attributes?.playParams?.catalogId ?? entry.id,
+                type: "track",
+                title: attributes?.name,
+                subtitle: attributes?.artistName,
+                durationMs: attributes?.durationInMillis,
+                image: attributes?.artwork.map { Artwork(url: $0.url) },
+                payload: (attributes?.playParams?.catalogId).map { Payload(id: $0, type: "songs") })
+        }
+
+        guard !items.isEmpty else {
+            return Screen(
+                screenType: "favouriteSongs", title: "Músicas favoritas",
+                firstPage: Page(type: "empty", items: [],
+                                heading: "Nenhuma música clássica favorita",
+                                description: "Você tem \(payload.data.count) música(s) favorita(s), "
+                                    + "mas nenhuma do catálogo clássico."))
+        }
+
+        return Screen(
+            screenType: "favouriteSongs",
+            title: "Músicas favoritas",
+            header: Header(type: "playlist", title: "Músicas favoritas",
+                           subtitle: "Suas favoritas de clássica"),
+            firstPage: Page(type: "list", items: items))
+    }
+
+    /// Found rather than hardcoded: the identifier is per-account. Apple's own
+    /// favourites playlist is the one it will not let you edit and that has no
+    /// catalog counterpart — a shared playlist saved to the library also has
+    /// canEdit false, but carries a globalId.
+    private func favouritesPlaylistID() async throws -> String? {
+        let payload: Response<PlaylistItem> = try await get("/playlists?limit=40")
+        return payload.data.first { entry in
+            entry.attributes?.canEdit == false && entry.attributes?.playParams?.globalId == nil
+        }?.id
+    }
+
     /// Tracks of a library playlist, shaped as a list screen.
     func playlistScreen(id: String, name: String) async throws -> Screen {
         let payload: Response<TrackItem> = try await get(
@@ -183,7 +246,12 @@ actor LibraryAPI {
     private struct Response<T: Decodable>: Decodable { let data: [T] }
 
     private struct PlaylistItem: Decodable {
-        struct Attributes: Decodable { let name: String? }
+        struct PlayParams: Decodable { let globalId: String? }
+        struct Attributes: Decodable {
+            let name: String?
+            let canEdit: Bool?
+            let playParams: PlayParams?
+        }
         let id: String
         let attributes: Attributes?
     }

@@ -56,7 +56,12 @@ final class AppModel {
     private func loadLibraryDestinations() async {
         var entries: [Destination] = [
             Destination(name: "Adições recentes", symbol: "clock",
-                        path: "/query/view/\(storefront)//recently-added")
+                        path: "/query/view/\(storefront)//recently-added"),
+            // The catalog offers favourites for recordings, works and composers
+            // but not for songs — those live in a playlist Apple keeps, mixed
+            // across genres. This is that playlist, kept to classical.
+            Destination(name: "Músicas favoritas", symbol: "star",
+                        path: LibraryRoute.favouriteSongs)
         ]
         var playlistRoot: Destination?
 
@@ -231,7 +236,9 @@ final class AppModel {
         defer { isLoading = false }
 
         do {
-            if path == LibraryRoute.playlists {
+            if path == LibraryRoute.favouriteSongs {
+                screen = try await LibraryAPI.shared.favouriteSongsScreen()
+            } else if path == LibraryRoute.playlists {
                 screen = try await LibraryAPI.shared.playlistsScreen()
             } else if path.hasPrefix(LibraryRoute.playlistPrefix) {
                 let id = String(path.dropFirst(LibraryRoute.playlistPrefix.count))

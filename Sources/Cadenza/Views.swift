@@ -44,10 +44,8 @@ struct RootView: View {
             ToolbarItem(placement: .primaryAction) {
                 if let context = model.playableContext {
                     Button {
-                        Task {
-                            try? await Playback.shared.active.play(
-                                id: context.id, kind: context.type)
-                        }
+                        Playback.shared.play(context: context,
+                                             title: model.current?.name ?? "")
                     } label: {
                         Label("Reproduzir", systemImage: "play.fill")
                     }
@@ -282,10 +280,9 @@ struct ItemCard: View {
             .frame(width: width, height: isFeatured ? 236 : 176)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(alignment: .bottomLeading) {
-                if hovering, let context = item.playable {
+                if hovering, item.playable != nil {
                     Button {
-                        Task { try? await Playback.shared.active.play(
-                            id: context.id, kind: context.type) }
+                        Playback.shared.play(item)
                     } label: {
                         Image(systemName: "play.fill")
                             .font(.title3)
@@ -341,10 +338,7 @@ struct TrackListView: View {
         }
     }
 
-    private func play(_ item: Item) {
-        guard let payload = item.playable else { return }
-        Task { try? await Playback.shared.active.play(id: payload.id, kind: payload.type) }
-    }
+    private func play(_ item: Item) { Playback.shared.play(item) }
 
     var body: some View {
         List {
@@ -468,8 +462,11 @@ struct NowPlayingBar: View {
     @State private var showingLyrics = false
 
     var body: some View {
-        if let track = engine.nowPlaying {
+        if let track = Playback.shared.displayed {
             Divider()
+            // The scrubber sits above the controls, full width, the way a
+            // player is expected to work.
+            Scrubber()
             HStack(spacing: 14) {
                 AsyncImage(url: track.artworkURL) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
@@ -479,10 +476,23 @@ struct NowPlayingBar: View {
                 }
                 .frame(width: 42, height: 42)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay {
+                    if Playback.shared.isPreparing {
+                        ZStack {
+                            Color.black.opacity(0.45)
+                            ProgressView().controlSize(.small)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.title).font(.callout).lineLimit(1)
-                    Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if Playback.shared.isPreparing {
+                        Text("Carregando…").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 16)
@@ -618,8 +628,9 @@ struct ScreenHeader: View {
 
                 if let context {
                     Button {
-                        Task { try? await Playback.shared.active.play(
-                            id: context.id, kind: context.type) }
+                        Playback.shared.play(context: context,
+                                             title: header.title ?? "",
+                                             artwork: header.image?.url(size: 256))
                     } label: {
                         Label("Reproduzir", systemImage: "play.fill")
                             .frame(minWidth: 76)
@@ -1512,8 +1523,8 @@ struct SectionRow: View {
         .onTapGesture {
             if item.action?.url != nil {
                 Task { await model.open(item) }
-            } else if let payload = item.playable {
-                Task { try? await Playback.shared.active.play(id: payload.id, kind: payload.type) }
+            } else if item.playable != nil {
+                Playback.shared.play(item)
             }
         }
     }
@@ -1603,5 +1614,58 @@ struct ScoreAISection: View {
             Text(text).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+// MARK: - Scrubber
+
+/// A draggable position bar.
+///
+/// Without one the transport could only start and stop: there was no way to
+/// repeat a passage or skip an introduction, which in a movement lasting ten
+/// minutes is most of what one wants to do.
+struct Scrubber: View {
+    private var engine: any Player { Playback.shared.active }
+
+    @State private var dragging: Double?
+
+    private var duration: TimeInterval {
+        max(Playback.shared.displayed?.duration ?? 0, 0.001)
+    }
+
+    private var fraction: Double {
+        if let dragging { return dragging }
+        return min(1, max(0, engine.position / duration))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary).frame(height: 3)
+                Capsule().fill(.tint).frame(width: width * fraction, height: 3)
+
+                Circle()
+                    .fill(.primary)
+                    .frame(width: dragging == nil ? 0 : 9, height: dragging == nil ? 0 : 9)
+                    .offset(x: width * fraction - 4.5)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        dragging = min(1, max(0, value.location.x / width))
+                    }
+                    .onEnded { value in
+                        let ratio = min(1, max(0, value.location.x / width))
+                        engine.seek(to: ratio * duration)
+                        dragging = nil
+                    }
+            )
+        }
+        .frame(height: 10)
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
     }
 }

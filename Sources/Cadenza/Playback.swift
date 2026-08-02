@@ -49,6 +49,49 @@ final class Playback {
 
     var usingLossless: Bool { active is MusicKitEngine }
 
+    /// What the user just asked for, shown while the engine is still fetching.
+    ///
+    /// Queueing a track takes seconds: the page has to resolve it, request a
+    /// licence and buffer. Until the engine reports back there was nothing on
+    /// screen at all, so a click looked like it had done nothing and the app
+    /// looked broken when it was merely working.
+    private(set) var pending: NowPlaying?
+
+    /// The track to display: whatever is actually playing, or what was asked
+    /// for while that is still being arranged.
+    var displayed: NowPlaying? { active.nowPlaying ?? pending }
+
+    var isPreparing: Bool { active.nowPlaying == nil && pending != nil }
+
+    /// Starts a track, showing it immediately from what the catalog already
+    /// told us rather than waiting for the engine to echo it back.
+    func play(_ item: Item) {
+        guard let payload = item.playable else { return }
+        pending = NowPlaying(
+            trackID: payload.id,
+            title: item.title ?? "",
+            artist: item.subtitle ?? item.addition ?? "",
+            artworkURL: item.image?.url(size: 256),
+            duration: Double(item.durationMs ?? 0) / 1000)
+        Task {
+            try? await active.play(id: payload.id, kind: payload.type)
+            // Give the engine a moment to take over the display.
+            try? await Task.sleep(for: .seconds(30))
+            if active.nowPlaying != nil { pending = nil }
+        }
+    }
+
+    /// Same, for a whole album or playlist, where only a name is known upfront.
+    func play(context: Payload, title: String, artwork: URL? = nil) {
+        pending = NowPlaying(trackID: context.id, title: title,
+                             artist: "", artworkURL: artwork, duration: 0)
+        Task {
+            try? await active.play(id: context.id, kind: context.type)
+            try? await Task.sleep(for: .seconds(30))
+            if active.nowPlaying != nil { pending = nil }
+        }
+    }
+
     private init() {
         if let raw = UserDefaults.standard.string(forKey: Self.key),
            let saved = Preference(rawValue: raw) {
