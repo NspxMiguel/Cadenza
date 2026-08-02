@@ -70,6 +70,15 @@ final class WebKitEngine: NSObject, Player {
             + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
         self.webView = webView
 
+        // A syntax error in the injected bridge produces no messages at all —
+        // indistinguishable from a slow page. Say so instead of hanging quietly.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(25))
+            guard let self, !self.isReady else { return }
+            self.log("AVISO: a ponte não reportou prontidão em 25s — "
+                + "verifique erros de sintaxe no JavaScript injetado")
+        }
+
         let storefront = TokenStore.shared.credentials?.storefront ?? "us"
         webView.load(URLRequest(url: URL(string: "https://classical.music.apple.com/\(storefront)")!))
         log("motor iniciando (storefront \(storefront))")
@@ -99,6 +108,38 @@ final class WebKitEngine: NSObject, Player {
 
     func skipForward() { run("window.__cadenzaSkip(1)") }
     func skipBackward() { run("window.__cadenzaSkip(-1)") }
+
+    /// Fades to silence over `seconds`, then pauses and restores the volume, so
+    /// the next session does not start muted.
+    func fadeOutAndPause(over seconds: TimeInterval = 20) {
+        log("fade-out em \(Int(seconds))s")
+        run("window.__cadenzaFadeOut(\(seconds))")
+    }
+
+    /// Stops playback at a chosen moment. Set to nil to cancel.
+    private(set) var sleepDeadline: Date?
+    private var sleepTask: Task<Void, Never>?
+
+    func scheduleSleep(after interval: TimeInterval) {
+        cancelSleep()
+        let deadline = Date().addingTimeInterval(interval)
+        sleepDeadline = deadline
+        log("timer de sono: \(Int(interval / 60)) min")
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.fadeOutAndPause()
+                self?.sleepDeadline = nil
+            }
+        }
+    }
+
+    func cancelSleep() {
+        sleepTask?.cancel()
+        sleepTask = nil
+        sleepDeadline = nil
+    }
 
     func stop() {
         run("window.__cadenzaStop()")
@@ -163,6 +204,7 @@ extension WebKitEngine: WKScriptMessageHandler {
                 if statesLogged < 3 {
                     statesLogged += 1
                     log("estado: tocando=\(body["playing"] as? Bool ?? false) "
+                        + "vol=\(body["volume"] as? Double ?? -1) "
                         + "pos=\(Int(body["position"] as? Double ?? 0))s "
                         + "título=\(body["title"] as? String ?? "<vazio>")")
                 }
@@ -236,8 +278,14 @@ extension WebKitEngine {
         mk = candidate;
         diagnose();
         send({ kind: 'ready', authorized: !!mk.isAuthorized });
-        if (window.__cadenzaSilent) {
-          try { mk.volume = 0; } catch (e) {}
+        // MusicKit persists volume, so a muted test run would otherwise leave
+        // the player silent for good. Always assert the intended value.
+        try {
+          var before = mk.volume;
+          mk.volume = window.__cadenzaSilent ? 0 : 1;
+          send({ kind: 'trace', step: 'volume', detail: before + ' -> ' + mk.volume });
+        } catch (e) {
+          send({ kind: 'error', message: 'volume: ' + e });
         }
 
         var report = function () {
@@ -246,6 +294,7 @@ extension WebKitEngine {
             send({
               kind: 'state',
               playing: !!mk.isPlaying,
+              volume: mk.volume,
               loading: mk.playbackState === 1,
               position: mk.currentPlaybackTime || 0,
               duration: mk.currentPlaybackDuration || 0,
@@ -253,7 +302,16 @@ extension WebKitEngine {
               title: item ? (item.title || item.attributes && item.attributes.name || '') : '',
               artist: item ? (item.artistName ||
                 (item.attributes && item.attributes.artistName) || '') : '',
-              artwork: item && item.artworkURL ? item.artworkURL : ''
+              artwork: (function () {
+                if (!item) return '';
+                if (item.artworkURL) return item.artworkURL;
+                var art = item.artwork || (item.attributes && item.attributes.artwork);
+                if (art && art.url) {
+                  return art.url.replace('{w}', '256').replace('{h}', '256')
+                                .replace('{f}', 'jpg').replace('{c}', 'bb');
+                }
+                return '';
+              })()
             });
           } catch (e) {}
         };
@@ -308,6 +366,25 @@ extension WebKitEngine {
       window.__cadenzaSkip = function (direction) {
         if (!mk) return;
         try { direction > 0 ? mk.skipToNextItem() : mk.skipToPreviousItem(); } catch (e) { fail(e); }
+      };
+
+      window.__cadenzaFadeOut = function (seconds) {
+        if (!mk) return;
+        var steps = 40;
+        var start = mk.volume;
+        var i = 0;
+        var timer = setInterval(function () {
+          i += 1;
+          try {
+            mk.volume = Math.max(0, start * (1 - i / steps));
+            if (i >= steps) {
+              clearInterval(timer);
+              mk.pause();
+              mk.volume = start;
+              send({ kind: 'trace', step: 'fade concluído', detail: 'volume restaurado' });
+            }
+          } catch (e) { clearInterval(timer); }
+        }, (seconds * 1000) / steps);
       };
 
       window.__cadenzaStop = function () {

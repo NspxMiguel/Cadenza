@@ -10,7 +10,7 @@ struct CadenzaApp: App {
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1280, height: 820)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unified)
     }
 }
 
@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        NowPlayingCenter.shared.activate()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

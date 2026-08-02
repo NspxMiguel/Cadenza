@@ -97,6 +97,30 @@ final class AppModel {
         await reload()
     }
 
+    /// A playlist or album screen is itself playable: its identifier is right
+    /// there in the path, so the whole thing can be queued without resolving
+    /// every track first.
+    var playableContext: Payload? {
+        guard let path = current?.path else { return nil }
+        if let id = Self.firstMatch(#"/playlist/(pl\.[A-Za-z0-9]+)"#, in: path) {
+            return Payload(id: id, type: "playlists")
+        }
+        if let id = Self.firstMatch(#"/album/(\d+)"#, in: path) {
+            return Payload(id: id, type: "albums")
+        }
+        return nil
+    }
+
+    private static func firstMatch(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                in: text, range: NSRange(text.startIndex..., in: text)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text)
+        else { return nil }
+        return String(text[range])
+    }
+
     func reload() async {
         guard let path = current?.path else { return }
         isLoading = true

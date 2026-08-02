@@ -33,8 +33,11 @@ struct Screen: Decodable {
     let publicUrl: String?
     let sections: [ScreenSection]
     let firstPage: Page?
+    let header: Header?
 
-    enum CodingKeys: String, CodingKey { case screenType, title, publicUrl, sections, firstPage }
+    enum CodingKeys: String, CodingKey {
+        case screenType, title, publicUrl, sections, firstPage, header
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -43,6 +46,7 @@ struct Screen: Decodable {
         publicUrl = try c.decodeIfPresent(String.self, forKey: .publicUrl)
         sections = lenientArray(ScreenSection.self, from: c, forKey: .sections, context: "Screen.sections")
         firstPage = try? c.decodeIfPresent(Page.self, forKey: .firstPage)
+        header = try? c.decodeIfPresent(Header.self, forKey: .header)
     }
 
     /// Every item on the screen, flattened — most views want this, not the
@@ -152,8 +156,28 @@ struct Item: Decodable, Identifiable {
         case durationMs, inLibrary, inFavorites, image, action, payload
     }
 
-    /// Playable when the catalog gave us something to queue.
-    var playable: Payload? { payload }
+    /// Playable when the catalog gave us something to queue. Shelf tiles carry
+    /// no payload, but their destination path names the playlist or album, so
+    /// the descriptor can be recovered from the action instead.
+    var playable: Payload? {
+        if let payload { return payload }
+        guard let url = action?.url else { return nil }
+        if let id = Self.capture(#"/playlist/(pl\.[A-Za-z0-9]+)"#, url) {
+            return Payload(id: id, type: "playlists")
+        }
+        if let id = Self.capture(#"/album/(\d+)"#, url) {
+            return Payload(id: id, type: "albums")
+        }
+        return nil
+    }
+
+    private static func capture(_ pattern: String, _ text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: text)
+        else { return nil }
+        return String(text[r])
+    }
 
     var isTrack: Bool { type == "track" }
     var isHeading: Bool { type == "subheading" }
@@ -162,6 +186,25 @@ struct Item: Decodable, Identifiable {
         guard let ms = durationMs, ms > 0 else { return nil }
         let total = ms / 1000
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+/// The masthead of a playlist, album or work screen.
+struct Header: Decodable {
+    let type: String?
+    let title: String?
+    let subtitle: String?
+    let image: Artwork?
+    let year: String?
+    let lastUpdated: String?
+    /// What the recording offers — `lossless`, `lossy-stereo`, `atmos`. What the
+    /// engine can actually deliver is a separate question.
+    let audioTraits: [String]?
+
+    var offersLossless: Bool { audioTraits?.contains("lossless") ?? false }
+
+    var caption: String? {
+        [subtitle, year ?? lastUpdated].compactMap { $0 }.filter { !$0.isEmpty }.first
     }
 }
 
