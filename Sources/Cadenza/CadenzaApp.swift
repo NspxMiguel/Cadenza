@@ -6,8 +6,8 @@ struct CadenzaApp: App {
 
     var body: some Scene {
         WindowGroup("Cadenza") {
-            ContentView()
-                .frame(minWidth: 720, minHeight: 480)
+            RootView()
+                .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1280, height: 820)
         .windowToolbarStyle(.unifiedCompact)
@@ -21,14 +21,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-}
-
-struct ContentView: View {
-    @State private var probe = DRMProbe()
-
-    var body: some View {
-        ClassicalWebView(probe: probe)
-            .ignoresSafeArea()
-            .overlay(alignment: .bottom) { DRMProbeBar(probe: probe) }
-    }
 }

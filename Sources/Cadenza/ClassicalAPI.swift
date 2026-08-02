@@ -23,9 +23,30 @@ actor ClassicalAPI {
     static let shared = ClassicalAPI()
 
     private let base = URL(string: "https://classical.music.apple.com/api/classical/v10")!
+
+    /// Content language follows the *storefront*, not the system language: the
+    /// catalog being browsed is the storefront's, and Apple's own player behaves
+    /// this way — a Brazilian storefront reads Portuguese even on an English Mac.
+    /// Falls back to the system language for storefronts not listed here.
+    static func locale(for storefront: String) -> String {
+        let known = [
+            "br": "pt-BR", "pt": "pt-PT", "us": "en-US", "gb": "en-GB",
+            "es": "es-ES", "mx": "es-MX", "fr": "fr-FR", "de": "de-DE",
+            "it": "it-IT", "jp": "ja-JP", "kr": "ko-KR", "cn": "zh-CN",
+            "nl": "nl-NL", "se": "sv-SE", "ru": "ru-RU",
+        ]
+        if let match = known[storefront.lowercased()] { return match }
+
+        let current = Locale.current
+        guard let language = current.language.languageCode?.identifier else { return "en-US" }
+        guard let region = current.region?.identifier else { return language }
+        return "\(language)-\(region)"
+    }
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .returnCacheDataElseLoad
+        // Deliberately not .returnCacheDataElseLoad: it can pin a stale
+        // response — including a stale language — for the life of the cache.
+        config.urlCache = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
         return URLSession(configuration: config)
     }()
 
@@ -45,9 +66,19 @@ actor ClassicalAPI {
         guard let creds = TokenStore.shared.credentials else { throw APIError.noCredentials }
 
         let suffix = path.hasPrefix("/query") ? String(path.dropFirst("/query".count)) : path
-        guard let url = URL(string: base.absoluteString + "/query" + suffix) else {
+        guard var components = URLComponents(string: base.absoluteString + "/query" + suffix) else {
             throw APIError.http(-1)
         }
+
+        // Without `l` the API answers in English regardless of storefront.
+        // Accept-Language is ignored, so it has to ride on the query string —
+        // and paths taken from action.url already carry their own parameters.
+        if components.queryItems?.contains(where: { $0.name == "l" }) != true {
+            components.queryItems = (components.queryItems ?? []) + [
+                URLQueryItem(name: "l", value: Self.locale(for: creds.storefront))
+            ]
+        }
+        guard let url = components.url else { throw APIError.http(-1) }
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(creds.developerToken)", forHTTPHeaderField: "Authorization")

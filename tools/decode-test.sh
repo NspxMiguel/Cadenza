@@ -31,14 +31,30 @@ do {
     exit(1)
 }
 
+// Screens come in two shapes: shelves under `sections`, or a list under
+// `firstPage`. Either one counts as content; only both being empty is a fault.
 let components = screen.sections.reduce(0) { $0 + $1.components.count }
-let items = screen.allItems
-print("screenType: \(screen.screenType ?? "nil")")
-print("seções: \(screen.sections.count)  componentes: \(components)  itens: \(items.count)")
-print("com action: \(items.filter { $0.action?.url != nil }.count)")
-print("com imagem: \(items.filter { $0.image?.url != nil }.count)")
+let shelfItems = screen.allItems
+let listItems = screen.firstPage?.items ?? []
 
-if screen.sections.isEmpty || items.isEmpty {
+print("screenType: \(screen.screenType ?? "nil")")
+if !screen.sections.isEmpty {
+    print("seções: \(screen.sections.count)  componentes: \(components)  itens: \(shelfItems.count)")
+    print("com action: \(shelfItems.filter { $0.action?.url != nil }.count)")
+    print("com imagem: \(shelfItems.filter { $0.image?.url != nil }.count)")
+}
+if !listItems.isEmpty {
+    let tracks = listItems.filter(\.isTrack)
+    print("lista: \(listItems.count) itens  (\(tracks.count) faixas, \(listItems.filter(\.isHeading).count) obras)")
+    print("com duração: \(tracks.filter { $0.duration != nil }.count)")
+}
+
+if shelfItems.isEmpty && listItems.isEmpty {
+    if screen.firstPage?.isEmptyState == true, screen.firstPage?.heading != nil {
+        print("estado vazio legítimo: \(screen.firstPage?.heading ?? "")")
+        print("OK")
+        exit(0)
+    }
     print("VAZIO — decodificação permissiva engoliu um erro.")
     exit(1)
 }
