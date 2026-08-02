@@ -74,12 +74,22 @@ actor LibraryAPI {
             .contains("classic")
     }
 
+    /// The rule's version is part of the key. Without it, tightening the rule
+    /// changes nothing for playlists already judged — a pop playlist accepted
+    /// by the old "one classical track is enough" test stays accepted forever,
+    /// because the stored verdict is consulted before the rule ever runs.
+    private static let verdictVersion = 2
+
+    private static func verdictKey(_ id: String) -> String {
+        "cadenza.classical.v\(verdictVersion)." + id
+    }
+
     private static func cachedVerdict(for id: String) -> Bool? {
-        UserDefaults.standard.object(forKey: "cadenza.classical." + id) as? Bool
+        UserDefaults.standard.object(forKey: verdictKey(id)) as? Bool
     }
 
     private static func cacheVerdict(_ value: Bool, for id: String) {
-        UserDefaults.standard.set(value, forKey: "cadenza.classical." + id)
+        UserDefaults.standard.set(value, forKey: verdictKey(id))
     }
 
     func playlists(limit: Int = 40) async throws -> [PlaylistSummary] {
