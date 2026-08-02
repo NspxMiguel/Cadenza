@@ -134,8 +134,12 @@ struct ClassicalWebView: NSViewRepresentable {
                     }
 
                 case "tokens":
-                    var payload = body
-                    payload.removeValue(forKey: "type")
+                    // Only the string credentials are kept; the rest of the
+                    // harvest payload is diagnostics.
+                    var payload: [String: String] = [:]
+                    for key in ["developerToken", "musicUserToken", "storefront"] {
+                        if let value = body[key] as? String, !value.isEmpty { payload[key] = value }
+                    }
                     TokenStore.shared.merge(payload)
                     let sources = (body["sources"] as? [String] ?? []).joined(separator: ", ")
                     let hasUser = (body["musicUserToken"] as? String)?.isEmpty == false
@@ -176,7 +180,7 @@ struct ClassicalWebView: NSViewRepresentable {
         /// script can never see it. Native code can.
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                var found: [String: Any] = [:]
+                var found: [String: String] = [:]
                 for cookie in cookies {
                     switch cookie.name {
                     case "media-user-token":

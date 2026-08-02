@@ -19,11 +19,11 @@ final class TokenStore: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "cadenza.tokens")
-    private var current: [String: Any] = [:]
+    private var current: [String: String] = [:]
 
     /// Merges, because the two credentials arrive from different places: the
     /// developer token from the page, the user token from an HttpOnly cookie.
-    func merge(_ payload: [String: Any]) {
+    func merge(_ payload: [String: String]) {
         queue.async { [self] in
             for (k, v) in payload { current[k] = v }
             guard JSONSerialization.isValidJSONObject(current),
@@ -41,16 +41,16 @@ final class TokenStore: @unchecked Sendable {
     var credentials: Credentials? {
         queue.sync {
             if current.isEmpty, let data = try? Data(contentsOf: url),
-               let disk = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+               let disk = try? JSONDecoder().decode([String: String].self, from: data) {
                 current = disk
             }
-            guard let dev = current["developerToken"] as? String,
-                  let user = current["musicUserToken"] as? String
+            guard let dev = current["developerToken"],
+                  let user = current["musicUserToken"]
             else { return nil }
             return Credentials(
                 developerToken: dev,
                 musicUserToken: user,
-                storefront: current["storefront"] as? String ?? "us")
+                storefront: current["storefront"] ?? "us")
         }
     }
 
