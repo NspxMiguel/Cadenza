@@ -460,6 +460,7 @@ struct TrackRow: View {
 struct NowPlayingBar: View {
     private var engine: any Player { Playback.shared.active }
     @State private var showingScore = false
+    @State private var showingLyrics = false
 
     var body: some View {
         if let track = engine.nowPlaying {
@@ -509,14 +510,25 @@ struct NowPlayingBar: View {
                 .help("Favoritar")
 
                 Button {
+                    showingLyrics.toggle()
+                } label: {
+                    Image(systemName: "captions.bubble")
+                }
+                .buttonStyle(.plain)
+                .help("Legenda")
+                .popover(isPresented: $showingLyrics, arrowEdge: .top) {
+                    LyricsPanel().frame(width: 440, height: 400)
+                }
+
+                Button {
                     showingScore.toggle()
                 } label: {
                     Image(systemName: "music.quarternote.3")
                 }
                 .buttonStyle(.plain)
-                .help("Partitura e letra")
+                .help("Partitura")
                 .popover(isPresented: $showingScore, arrowEdge: .top) {
-                    ScorePanel().frame(width: 760, height: 600)
+                    ScorePanel().frame(width: 820, height: 620)
                 }
 
                 SleepTimerMenu()
@@ -803,6 +815,8 @@ struct ArtworkPlaceholder: View {
 struct SettingsView: View {
     var body: some View {
         TabView {
+            GeneralSettings()
+                .tabItem { Label("Geral", systemImage: "gearshape") }
             PlaybackSettings()
                 .tabItem { Label("Reprodução", systemImage: "play.circle") }
             ScoreSettings()
@@ -813,6 +827,37 @@ struct SettingsView: View {
                 .tabItem { Label("Sobre", systemImage: "info.circle") }
         }
         .frame(width: 540, height: 430)
+    }
+}
+
+// MARK: General
+
+struct GeneralSettings: View {
+    @State private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Idioma do conteúdo", selection: Binding(
+                    get: { settings.language },
+                    set: { settings.language = $0 }
+                )) {
+                    ForEach(AppSettings.Language.allCases) { language in
+                        Text(language.label).tag(language)
+                    }
+                }
+            } header: {
+                Text("Idioma")
+            } footer: {
+                Text("Define o idioma de títulos, seções e textos do catálogo. "
+                     + "Não muda a música: a letra cantada e as indicações da partitura "
+                     + "pertencem à obra — um Lied é em alemão porque o poema é alemão. "
+                     + "Para esses, use a legenda no painel de partitura.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -1098,29 +1143,29 @@ struct ScorePanel: View {
     @State private var loadedFor: String?
     @State private var offset: TimeInterval = 0
 
-    /// Engravings of vocal music carry their text as <lyric> elements. When they
-    /// do, printing a separate lyric column beside them would duplicate what is
-    /// already on the staff.
-    private var scoreHasLyrics: Bool { musicXML?.contains("<lyric") ?? false }
+    /// Whether Apple provides timed lyrics for this recording. Most of the
+    /// classical catalog does not, and an empty column would only take space.
+    @State private var hasTimedLyrics = false
 
     var body: some View {
         VStack(spacing: 0) {
             if let musicXML, let track = engine.nowPlaying {
-                if scoreHasLyrics {
-                    // A normal score already prints the words under the notes,
-                    // which is exactly what the engraving gives us.
-                    ScoreView(musicXML: musicXML,
-                              position: engine.position,
-                              duration: track.duration,
-                              offset: offset)
-                } else {
+                // The engraving prints the words under the notes, but statically.
+                // The timed lyrics beside it show which line is sounding now,
+                // which is the part the printed page cannot do.
+                if hasTimedLyrics {
                     HSplitView {
                         ScoreView(musicXML: musicXML,
                                   position: engine.position,
                                   duration: track.duration,
                                   offset: offset)
-                        LyricsPanel().frame(minWidth: 210, idealWidth: 260)
+                        LyricsPanel().frame(minWidth: 230, idealWidth: 280)
                     }
+                } else {
+                    ScoreView(musicXML: musicXML,
+                              position: engine.position,
+                              duration: track.duration,
+                              offset: offset)
                 }
 
                 Divider()
@@ -1203,10 +1248,15 @@ struct ScorePanel: View {
         searching = true
         defer { searching = false }
 
-        guard let found = await ScoreService.shared.score(
-            forTrack: track.title, artist: track.artist, work: nil) else { return }
-        match = found
-        musicXML = await ScoreService.shared.musicXML(for: found)
+        // Both are wanted together, so both are looked up together.
+        async let lyrics = LyricsService.shared.lyrics(forTrack: track.trackID)
+        async let found = ScoreService.shared.score(
+            forTrack: track.title, artist: track.artist, work: nil)
+
+        hasTimedLyrics = await !lyrics.isEmpty
+        guard let score = await found else { return }
+        match = score
+        musicXML = await ScoreService.shared.musicXML(for: score)
     }
 }
 

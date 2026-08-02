@@ -24,11 +24,14 @@ actor ClassicalAPI {
 
     private let base = URL(string: "https://classical.music.apple.com/api/classical/v10")!
 
-    /// Content language follows the *storefront*, not the system language: the
+    /// An explicit choice wins; otherwise content language follows the
+    /// *storefront*, not the system language: the
     /// catalog being browsed is the storefront's, and Apple's own player behaves
     /// this way — a Brazilian storefront reads Portuguese even on an English Mac.
     /// Falls back to the system language for storefronts not listed here.
     static func locale(for storefront: String) -> String {
+        if let chosen = AppSettings.storedLanguageCode { return chosen }
+
         let known = [
             "br": "pt-BR", "pt": "pt-PT", "us": "en-US", "gb": "en-GB",
             "es": "es-ES", "mx": "es-MX", "fr": "fr-FR", "de": "de-DE",
