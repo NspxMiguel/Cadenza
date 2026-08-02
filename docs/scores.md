@@ -62,3 +62,36 @@ files sit behind a download gateway, and the page images its API exposes are
 cover thumbnails rather than score pages. Until that is solved the file is
 chosen by hand, which is honest about what works rather than offering a button
 that quietly fails.
+
+### What the engine needs to actually run
+
+Two things had to be true before recognition worked once, and neither is
+obvious from the outside:
+
+- **The console script, not the module.** `python3 -m oemer` fails immediately —
+  the package ships no `__main__`. Every attempt died here, before any
+  recognition began, which is why enabling the feature appeared to do nothing.
+  The right entry point is `venv/bin/oemer`.
+- **NumPy below 1.24.** The newest oemer requires `onnxruntime-gpu`, which has
+  no macOS build, so pip silently resolves back to 0.1.5 — and 0.1.5 calls
+  `np.int`, removed in NumPy 1.24. Installed unpinned, the engine runs its full
+  inference and *then* dies on an `AttributeError`. Roughly three and a half
+  minutes of CPU to reach a crash.
+
+Measured on this machine, a 1681×1740 photograph of two piano staves:
+**3 min 51 s**, producing 28 measures and 360 notes of valid MusicXML. Pitch
+accuracy is imperfect — which is what beta means here — but the file is real and
+Verovio renders it.
+
+Because that cost is real, a score read for a recording is cached under
+`Caches/Cadenza/scores-ai/{trackID}.musicxml` and reused. Reading the same
+engraving twice would be the app spending the user's machine on work it already
+did.
+
+### Coverage, stated plainly
+
+The open corpus is Lieder and string quartets. Film and game soundtracks are not
+in it and will not be: they are not public domain, so no CC0 engraving exists to
+find. For a recording like the Zelda arrangements in the classical catalog,
+there is no score to fetch — only a scan the listener already has, read by the
+engine above.
