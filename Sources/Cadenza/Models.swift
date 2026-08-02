@@ -246,10 +246,28 @@ struct Item: Decodable, Identifiable {
     /// `songs`, `albums`, `playlists`.
     let payload: Payload?
 
+    /// Carries the album a track belongs to — and only on the screens where
+    /// that is not already obvious. Verified against the cached payloads: 66
+    /// of 66 playlist rows have it, 0 of 22 album rows do. The catalog is
+    /// stating where the album name is worth printing, so the row follows it
+    /// instead of guessing.
+    let contextMenuAction: ContextMenuRef?
+
     enum CodingKeys: String, CodingKey {
         case catalogID = "id"
         case type, title, addition, subtitle, workSubheading
         case durationMs, inLibrary, inFavorites, image, action, payload
+        case contextMenuAction
+    }
+
+    /// The album this track came from, when the screen is not already an album.
+    var albumName: String? { contextMenuAction?.previewAction?.title }
+
+    /// Where "Ir para o álbum" leads.
+    var albumAction: Action? {
+        guard let action = contextMenuAction?.previewAction, action.url != nil
+        else { return nil }
+        return action
     }
 
     /// Playable when the catalog gave us something to queue. Shelf tiles carry
@@ -300,6 +318,7 @@ struct Item: Decodable, Identifiable {
         self.image = image
         self.action = action
         self.payload = payload
+        self.contextMenuAction = nil
     }
 
     var isTrack: Bool { type == "track" }
@@ -411,13 +430,22 @@ struct Artwork: Decodable {
 
 /// Navigation is data: an action carries the path of the screen it leads to.
 struct Action: Decodable {
-    init(type: String?, screenType: String?, url: String?) {
+    init(type: String?, screenType: String?, url: String?, title: String? = nil) {
         self.type = type
         self.screenType = screenType
         self.url = url
+        self.title = title
     }
 
     let type: String?
     let screenType: String?
     let url: String?
+    /// Present on the album an action leads to, which is how a track row learns
+    /// the name of its album without another request.
+    let title: String?
+}
+
+/// The context-menu descriptor a track row carries.
+struct ContextMenuRef: Decodable {
+    let previewAction: Action?
 }

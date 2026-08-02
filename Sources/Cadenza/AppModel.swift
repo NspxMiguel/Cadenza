@@ -189,7 +189,18 @@ final class AppModel {
         if let id = Self.firstMatch(#"/album/(\d+)"#, in: path) {
             return Payload(id: id, type: "albums")
         }
+        // The library screens had no Play button at all, which is where the
+        // listener spends most of their time. They have no catalog identifier
+        // to queue, so the header plays their rows instead.
+        if let items = screen?.firstPage?.items, items.contains(where: \.isTrack) {
+            return Payload(id: "cadenza-screen", type: "screen")
+        }
         return nil
+    }
+
+    /// The rows a "play this screen" button should queue.
+    var screenTracks: [Item] {
+        ((screen?.firstPage?.items ?? []) + extraItems).filter(\.isTrack)
     }
 
     private static func firstMatch(_ pattern: String, in text: String) -> String? {

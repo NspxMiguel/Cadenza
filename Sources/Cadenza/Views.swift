@@ -346,7 +346,6 @@ struct ScreenView: View {
                         }
                         TrackListView(page: page, extra: model.extraItems,
                                       loadingMore: model.isLoadingMore, model: model,
-                                      fallbackArtwork: screen.header?.image,
                                       filter: filter, order: order,
                                       onlyFavourites: onlyFavourites)
                     }
@@ -405,6 +404,7 @@ struct ScreenView: View {
                                     component: component,
                                     heading: section.displayTitle,
                                     seeAll: section.heading?.seeAll,
+                                    sectionType: section.type,
                                     model: model)
                             } else {
                                 ShelfView(
@@ -654,10 +654,6 @@ struct TrackListView: View {
     var extra: [Item] = []
     var loadingMore = false
     let model: AppModel
-    /// The cover of the album or playlist being shown. Individual classical
-    /// tracks carry no artwork of their own — the catalog simply does not send
-    /// it — so without this every row would show the same grey placeholder.
-    var fallbackArtwork: Artwork? = nil
     var filter: String = ""
     var order: TrackOrder = .original
     var onlyFavourites = false
@@ -747,7 +743,6 @@ struct TrackListView: View {
                     WorkHeadingRow(item: entry.item, model: model)
                 } else {
                     TrackRow(item: entry.item, number: entry.number,
-                             fallbackArtwork: fallbackArtwork,
                              playlist: model.currentPlaylist, model: model)
                         .contentShape(Rectangle())
                         .onTapGesture { play(entry.item) }
@@ -817,6 +812,12 @@ struct TrackMenu: View {
             Button(membership.contains(catalogID) == true
                    ? "Remover da biblioteca" : "Adicionar à biblioteca") {
                 membership.toggle(catalogID)
+            }
+
+            if let album = item.albumAction {
+                Button("Ir para o álbum") {
+                    Task { await model.go(toAction: album, named: album.title ?? "Álbum") }
+                }
             }
 
             Menu("Adicionar a playlist") {
@@ -898,7 +899,6 @@ struct WorkHeadingRow: View {
 struct TrackRow: View {
     let item: Item
     let number: Int?
-    var fallbackArtwork: Artwork? = nil
     var playlist: LibraryAPI.PlaylistSummary? = nil
     var model: AppModel? = nil
 
@@ -908,7 +908,11 @@ struct TrackRow: View {
         item.playable?.id == Playback.shared.active.nowPlaying?.trackID
     }
 
-    private var artwork: Artwork? { item.image ?? fallbackArtwork }
+    /// Only the catalog's own. It sends artwork on playlist rows and withholds
+    /// it on album rows — where the cover is the same for every track and
+    /// already sits 208pt above — so following it is following the server's
+    /// judgement instead of overriding it with the same picture 22 times.
+    private var artwork: Artwork? { item.image }
 
     private var isFavourite: Bool { Favourites.shared.isFavourite(item) }
 
@@ -1026,8 +1030,14 @@ struct TrackRow: View {
         }
     }
 
+    /// "Álbum — Intérpretes", where the album is known.
+    ///
+    /// It comes from `contextMenuAction.previewAction.title`, which the catalog
+    /// attaches to playlist and search rows and omits on album rows. An earlier
+    /// version composed this from `item.addition`; that field is empty in all
+    /// 106 track rows in the cache, so the promised first half never appeared.
     private static func secondLine(_ item: Item) -> String? {
-        let parts = [item.addition, item.subtitle]
+        let parts = [item.albumName, item.subtitle]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
         guard !parts.isEmpty else { return nil }
@@ -1130,10 +1140,7 @@ struct ScreenHeader: View {
                 if let context {
                     HStack(spacing: 12) {
                         bigButton("Reproduzir", icon: "play.fill") {
-                            Playback.shared.play(context: context,
-                                                 title: header.title ?? "",
-                                                 artwork: header.image?.url(size: 256),
-                                                 shuffled: false)
+                            start(context, shuffled: false)
                         }
 
                         // Offered on collections, withheld on a work. Shuffling
@@ -1143,10 +1150,7 @@ struct ScreenHeader: View {
                         // invitation to break that.
                         if header.composerName == nil {
                             bigButton("Aleatório", icon: "shuffle") {
-                                Playback.shared.play(context: context,
-                                                     title: header.title ?? "",
-                                                     artwork: header.image?.url(size: 256),
-                                                     shuffled: true)
+                                start(context, shuffled: true)
                             }
                         }
                     }
@@ -1162,6 +1166,20 @@ struct ScreenHeader: View {
         .padding(.horizontal, 24)
         .padding(.top, 20)
         .padding(.bottom, 16)
+    }
+
+    /// A library screen has no catalog identifier to hand the player, so it
+    /// queues its own rows instead. Everything else queues the collection.
+    private func start(_ context: Payload, shuffled: Bool) {
+        if context.type == "screen" {
+            let tracks = model?.screenTracks ?? []
+            guard let first = tracks.first else { return }
+            Playback.shared.active.setShuffle(shuffled)
+            Playback.shared.play(first, within: shuffled ? tracks.shuffled() : tracks)
+            return
+        }
+        Playback.shared.play(context: context, title: header.title ?? "",
+                             artwork: header.image?.url(size: 256), shuffled: shuffled)
     }
 
     /// The wide, dark, tinted-label button Music uses for Play and Shuffle.
@@ -1717,6 +1735,15 @@ struct CacheSection: View {
 /// Headings use the platform serif — New York — while lists, controls and
 /// metadata stay in the system sans, where legibility at small sizes matters
 /// more than character.
+extension Color {
+    /// Music is red, everywhere: the buttons, the star, the sounding track.
+    /// Declared once and applied with `.tint` at the root, so every place that
+    /// already asks for the accent follows without naming a colour itself —
+    /// there is no accent colour in the bundle, so `.tint` was resolving to the
+    /// system blue.
+    static let cadenzaAccent = Color(red: 0.98, green: 0.16, blue: 0.28)
+}
+
 extension Font {
     static func cadenzaTitle(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
         .system(size: size, weight: weight, design: .serif)
@@ -2138,7 +2165,15 @@ struct SectionListView: View {
     let component: Component
     var heading: String?
     var seeAll: Action?
+    var sectionType: String?
     let model: AppModel
+
+    /// An album is not a `firstPage` — it arrives as sections named
+    /// `track-list`, `track-list-footer`, `on-this-album` and `credits`. Its
+    /// tracks therefore never passed through TrackListView, which is why the
+    /// new row shape applied to playlists and not to the screen where people
+    /// actually read a track list.
+    private var isTrackList: Bool { sectionType == "track-list" || sectionType == "tracks" }
 
     /// Numbering counts tracks only and restarts under each work heading, so a
     /// heading row does not consume position 1.
@@ -2179,6 +2214,16 @@ struct SectionListView: View {
                     if entry.item.isHeading {
                         WorkHeadingRow(item: entry.item, model: model)
                             .padding(.horizontal, 24)
+                    } else if isTrackList {
+                        TrackRow(item: entry.item, number: entry.number, model: model)
+                            .padding(.horizontal, 24)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                Playback.shared.play(entry.item, within: component.items)
+                            }
+                            .contextMenu {
+                                TrackMenu(item: entry.item, model: model)
+                            }
                     } else {
                         SectionRow(item: entry.item, number: entry.number,
                                    siblings: component.items, model: model)

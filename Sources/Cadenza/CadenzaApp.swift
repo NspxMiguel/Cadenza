@@ -8,6 +8,7 @@ struct CadenzaApp: App {
         WindowGroup("Cadenza") {
             RootView()
                 .frame(minWidth: 860, minHeight: 560)
+                .tint(.cadenzaAccent)
         }
         .defaultSize(width: 1280, height: 820)
         .windowToolbarStyle(.unified)
