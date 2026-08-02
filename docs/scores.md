@@ -41,6 +41,59 @@ Movement folders are prefixed with their order — `13_Die_Post` — and that nu
 never appears in a track title, so it is stripped before comparison. Missing
 that is why the first matching pass found nothing at all.
 
+## Where the scores come from
+
+| Acervo | Formato | Cobre |
+|---|---|---|
+| OpenScore Lieder | MusicXML (CC0) | Lied alemão — e traz o texto cantado como `<lyric>` |
+| OpenScore String Quartets | MusicXML (CC0) | Quartetos de cordas |
+| craigsapp/beethoven-piano-sonatas | Humdrum `**kern` | As 32 sonatas, com títulos reais em `index.hmd` |
+| craigsapp/mozart-piano-sonatas | Humdrum | Sonatas para piano |
+| craigsapp/haydn-piano-sonatas | Humdrum | Sonatas para piano |
+| craigsapp/beethoven-string-quartets | Humdrum | Quartetos |
+| craigsapp/chopin-mazurkas | Humdrum | Mazurcas, títulos em `kern/.ref` |
+| craigsapp/chopin-preludes | Humdrum | Op. 28 |
+| craigsapp/scarlatti-keyboard-sonatas | Humdrum | Sonatas, nomeadas por número Kirkpatrick |
+| craigsapp/joplin | Humdrum | Rags |
+
+1922 movimentos no índice, contra cerca de 400 quando só havia OpenScore.
+
+### O build do Verovio importa
+
+O toolkit padrão — `verovio-toolkit-wasm.js` — é compilado **sem** o
+importador de Humdrum. Ele não avisa: `loadData` devolve falso, a página fica
+em branco e nada chega ao Swift, o que é indistinguível de um arquivo corrompido.
+`verovio-toolkit-hum.js` tem o importador, e é 4 MB maior, então o app carrega
+um ou outro conforme o formato da partitura.
+
+Auto-detecção também não basta: estes arquivos começam com registros
+`!!!COM:` em vez da linha `**kern`, então o formato é declarado explicitamente
+com `inputFrom: 'humdrum'`.
+
+Medido no renderizador de verdade: a *Sonata ao Luar* dá 1182 notas em 6
+páginas; *Erlkönig* dá 2893 notas, **638 sílabas de letra** e 16 páginas.
+
+### Como o casamento decide
+
+Regra central: **compositor ou número de catálogo têm de bater**. Marcação de
+andamento e tonalidade não identificam nada — são compartilhadas por milhares
+de peças, e confiar nelas foi o que deu uma sonata de Beethoven para a Sinfonia
+n.º 40 de Mozart (ambas "in … Minor", ambas com um movimento *Allegro*).
+
+- Catálogos conhecidos dos dois lados que não se cruzam são **rejeição**, não
+  nota baixa. K. 550 nunca recebe Op. 2 n.º 1.
+- Um opus sozinho é fraco: Op. 28 é o caderno de prelúdios de Chopin e também
+  dois Lieder de Josephine Lang. Só vale sem o compositor se a chave for
+  específica — `op28no4`, ou uma letra de catálogo como K., D., BWV.
+- Uma obra conhecida só por número ("Piano Sonata No. 11") precisa bater no
+  número **e** na palavra que diz o que ela é.
+- Movimento errado dentro da obra certa é penalizado: acompanha de forma
+  convincente e é a música errada.
+
+Treze títulos reais no autoteste (`CADENZA_SELFTEST=1`): dez acertam, e os três
+que não têm gravura de domínio público continuam sem resposta — que é o
+resultado certo.
+
 ## Reading scans with AI (beta)
 
 Settings offers optical music recognition, run locally with `oemer` — open
