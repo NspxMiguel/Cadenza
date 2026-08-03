@@ -104,12 +104,13 @@ final class WebKitEngine: NSObject, Player {
     }
 
     /// Queues a run of tracks and starts at one of them, so skipping works.
-    func play(ids: [String], startingAt index: Int) async throws {
-        log("play lista: \(ids.count) faixas, início \(index)")
+    func play(ids: [String], startingAt index: Int, shuffled: Bool = false) async throws {
+        log("play lista: \(ids.count) faixas, início \(index), aleatório=\(shuffled)")
         status = .loading
+        shuffle = shuffled
         let json = (try? JSONSerialization.data(withJSONObject: ids))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        run("window.__cadenzaPlayList(\(quote(json)), \(index))")
+        run("window.__cadenzaPlayList(\(quote(json)), \(index), \(shuffled))")
     }
 
     func togglePlayPause() {
@@ -461,14 +462,18 @@ extension WebKitEngine {
       // Queueing the surrounding tracks is what makes skip mean anything: a
       // queue of one has nowhere to go, which is why the next button did
       // nothing when a track was started on its own.
-      window.__cadenzaPlayList = function (idsJson, startIndex) {
+      window.__cadenzaPlayList = function (idsJson, startIndex, shuffled) {
         if (!mk) return fail('MusicKit indisponível');
         var ids = JSON.parse(idsJson);
         send({ kind: 'trace', step: 'setQueue lista',
                detail: ids.length + ' faixas, início ' + startIndex });
         try {
           Promise.resolve(mk.setQueue({ songs: ids, startWith: startIndex }))
-            .then(function () { return mk.play(); })
+            .then(function () {
+              // On the queue that now exists, never the one being replaced.
+              try { mk.shuffleMode = shuffled ? 1 : 0; } catch (e) {}
+              return mk.play();
+            })
             .then(function () {
               send({ kind: 'trace', step: 'play resolvido',
                      detail: 'fila=' + ((mk.queue && mk.queue.length) || 0) });

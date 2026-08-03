@@ -97,7 +97,7 @@ final class Playback {
 
     /// Starts a track within its surroundings, so the queue holds the rest of
     /// the album or playlist and skipping forward has somewhere to go.
-    func play(_ item: Item, within siblings: [Item]) {
+    func play(_ item: Item, within siblings: [Item], shuffled: Bool = false) {
         // A local file has no catalog behind it and plays through a different
         // engine entirely, so the routing decision happens before anything is
         // queued.
@@ -115,8 +115,9 @@ final class Playback {
         showPending(item)
         Task {
             if let engine = active as? WebKitEngine {
-                try? await engine.play(ids: ids, startingAt: index)
+                try? await engine.play(ids: ids, startingAt: index, shuffled: shuffled)
             } else {
+                if shuffled { active.setShuffle(true) }
                 try? await active.play(id: id, kind: "songs")
             }
             try? await Task.sleep(for: .seconds(30))

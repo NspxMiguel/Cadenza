@@ -161,6 +161,52 @@ final class MusicKitEngine: Player {
         }
     }
 
+    // MARK: The rest of a player
+
+    /// Confirmed missing: this engine implemented none of these, so through
+    /// `any Player` it ran the protocol's empty defaults. In lossless mode the
+    /// shuffle and repeat buttons lit up and changed nothing — the same class
+    /// of silent no-op the protocol comment already warns about.
+    private(set) var shuffle = false
+
+    func setShuffle(_ on: Bool) {
+        shuffle = on
+        player.state.shuffleMode = on ? .songs : .off
+    }
+
+    private(set) var repeatMode: RepeatMode = .off
+
+    func setRepeat(_ mode: RepeatMode) {
+        repeatMode = mode
+        player.state.repeatMode = switch mode {
+        case .off: MusicPlayer.RepeatMode.none
+        case .one: .one
+        case .all: .all
+        }
+    }
+
+    /// ApplicationMusicPlayer shuffles the queue it has, not the one it is
+    /// about to get, so the mode is set after the queue is built.
+    func play(id: String, kind: String, shuffled: Bool) async throws {
+        try await play(id: id, kind: kind)
+        setShuffle(shuffled)
+    }
+
+    var queue: [QueueEntry] {
+        player.queue.entries.map { entry in
+            QueueEntry(id: entry.id, title: entry.title,
+                       artist: entry.subtitle ?? "",
+                       isCurrent: entry.id == player.queue.currentEntry?.id)
+        }
+    }
+
+    func jump(to entryID: String) {
+        guard let entry = player.queue.entries.first(where: { $0.id == entryID })
+        else { return }
+        player.queue.currentEntry = entry
+        Task { try? await Self.beginPlayback() }
+    }
+
     func stop() {
         player.stop()
         ticker?.invalidate()

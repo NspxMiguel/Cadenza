@@ -682,21 +682,42 @@ struct TrackListView: View {
             }
         }
 
-        switch order {
-        case .original: break
-        case .title:
-            items = items.filter(\.isTrack).sorted {
-                ($0.title ?? "").localizedStandardCompare($1.title ?? "") == .orderedAscending
-            }
-        case .artist:
-            items = items.filter(\.isTrack).sorted {
-                ($0.subtitle ?? "").localizedStandardCompare($1.subtitle ?? "") == .orderedAscending
-            }
-        case .duration:
-            items = items.filter(\.isTrack).sorted { ($0.durationMs ?? 0) < ($1.durationMs ?? 0) }
+        if order != .original {
+            items = Self.sorted(items.filter(\.isTrack), by: order)
         }
 
         return Self.withoutOrphanHeadings(items)
+    }
+
+    /// Sorts, stably.
+    ///
+    /// `sorted(by:)` is not a stable sort in Swift, and a movement list is full
+    /// of ties — two movements both marked *Andante*, two tracks of the same
+    /// length. Without a tiebreak they swapped places on every redraw, which
+    /// looks like the list twitching for no reason. The original position is
+    /// the tiebreak, so equal rows keep the order the record gave them.
+    private static func sorted(_ items: [Item], by order: TrackOrder) -> [Item] {
+        let positions = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.id, $0) })
+
+        func compare(_ a: Item, _ b: Item) -> Bool {
+            let result: ComparisonResult
+            switch order {
+            case .original:
+                result = .orderedSame
+            case .title:
+                result = (a.title ?? "").localizedStandardCompare(b.title ?? "")
+            case .artist:
+                result = (a.subtitle ?? "").localizedStandardCompare(b.subtitle ?? "")
+            case .duration:
+                let left = a.durationMs ?? 0, right = b.durationMs ?? 0
+                result = left == right ? .orderedSame
+                    : (left < right ? .orderedAscending : .orderedDescending)
+            }
+            if result != .orderedSame { return result == .orderedAscending }
+            return (positions[a.id] ?? 0) < (positions[b.id] ?? 0)
+        }
+
+        return items.sorted(by: compare)
     }
 
     /// Removes headings that no longer have a track beneath them.
@@ -714,13 +735,25 @@ struct TrackListView: View {
 
     /// Track numbering restarts under each work, and headings are not counted —
     /// they are work titles standing above their movements, not playable rows.
-    private var numbered: [(item: Item, number: Int?)] {
+    ///
+    /// Computed over the list as the record gives it, not over what is on
+    /// screen: the number a row carries is its position on the disc. Kept that
+    /// way, a sorted list announces itself — the numbers run out of sequence,
+    /// which is exactly the signal that the order is no longer the composer's.
+    private var numbers: [UUID: Int] {
         var counter = 0
-        return visible.map { item in
-            guard item.isTrack else { counter = 0; return (item, nil) }
+        var result: [UUID: Int] = [:]
+        for item in allItems {
+            guard item.isTrack else { counter = 0; continue }
             counter += 1
-            return (item, counter)
+            result[item.id] = counter
         }
+        return result
+    }
+
+    private var numbered: [(item: Item, number: Int?)] {
+        let positions = numbers
+        return visible.map { ($0, positions[$0.id]) }
     }
 
     private func play(_ item: Item) {
@@ -1174,8 +1207,10 @@ struct ScreenHeader: View {
         if context.type == "screen" {
             let tracks = model?.screenTracks ?? []
             guard let first = tracks.first else { return }
-            Playback.shared.active.setShuffle(shuffled)
-            Playback.shared.play(first, within: shuffled ? tracks.shuffled() : tracks)
+            // Shuffle rides with the request, for the same reason it does
+            // everywhere else: applied separately it lands on the queue being
+            // replaced and the new one plays in order.
+            Playback.shared.play(first, within: tracks, shuffled: shuffled)
             return
         }
         Playback.shared.play(context: context, title: header.title ?? "",

@@ -443,12 +443,19 @@ extension LibraryAPI {
 
             collected += payload.data.map { entry in
                 let attributes = entry.attributes
+                // The tail used to arrive stripped: no cover, no album. On a
+                // hundred-track playlist that showed artwork on the first forty
+                // rows and grey squares on the rest, which reads as the app
+                // having lost the pictures rather than as a second request
+                // returning less.
                 return Item(
                     catalogID: entry.id,
                     type: "track",
-                    title: attributes?.name,
+                    title: attributes?.movementName ?? attributes?.name,
+                    addition: attributes?.albumName,
                     subtitle: attributes?.artistName,
                     durationMs: attributes?.durationInMillis,
+                    image: attributes?.artwork.map { Artwork(url: $0.url) },
                     payload: Payload(id: entry.id, type: "songs"))
             }
 
@@ -477,10 +484,16 @@ extension LibraryAPI {
 
     private struct CatalogTracks: Decodable {
         struct Entry: Decodable {
+            struct Artwork: Decodable { let url: String? }
             struct Attributes: Decodable {
                 let name: String?
                 let artistName: String?
+                let albumName: String?
                 let durationInMillis: Int?
+                let artwork: Artwork?
+                /// Present on classical recordings: "I. Molto allegro" rather
+                /// than the whole work title repeated on every movement.
+                let movementName: String?
             }
             let id: String
             let attributes: Attributes?
