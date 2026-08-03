@@ -246,7 +246,17 @@ final class LocalLibrary {
     /// Exists for the self-test: checking what the reader makes of a file has
     /// to be possible without adding it to someone's library and taking it out
     /// again, which would be a destructive test of a non-destructive thing.
-    func inspect(_ url: URL) async -> LocalTrack? { await describe(url) }
+    ///
+    /// `describe` writes the cover art to disk as it goes, which is right when
+    /// the track is about to be kept and wrong here — it left an orphaned image
+    /// belonging to no track. So whatever it wrote is taken back out.
+    func inspect(_ url: URL) async -> LocalTrack? {
+        guard let track = await describe(url) else { return nil }
+        if let artwork = artworkURL(for: track) {
+            try? FileManager.default.removeItem(at: artwork)
+        }
+        return track
+    }
 
     /// The first of several tag names that actually carries text.
     private func string(in items: [AVMetadataItem],

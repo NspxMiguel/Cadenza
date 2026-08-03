@@ -81,6 +81,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NowPlayingCenter.shared.activate()
+        ensureWindowAppears()
+    }
+
+    /// Makes sure something is actually on screen a moment after launch.
+    ///
+    /// AppKit autosaves each window's frame under a key derived from the view
+    /// hierarchy's type name, and restores it before the app has any say. One
+    /// bad entry — a frame from a display that is no longer attached, a stale
+    /// key left by an older version of the view tree — and the window is
+    /// restored somewhere it cannot be seen. The app then runs perfectly, with
+    /// nothing visible and no way to get it back: the Dock icon does nothing,
+    /// because there is a window and AppKit considers the job done.
+    ///
+    /// This happened, repeatedly, and the only cure was deleting the saved
+    /// frame from the defaults by hand. Nobody should have to know that. If two
+    /// seconds after launch nothing is showing, the window is put back at a
+    /// sane size in the middle of the screen.
+    private func ensureWindowAppears() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+
+            let candidates = NSApp.windows.filter(\.canBecomeMain)
+            guard !candidates.isEmpty else { return }
+            if candidates.contains(where: { $0.isVisible && $0.frame.width > 400 }) { return }
+
+            guard let window = candidates.first else { return }
+            Diagnostics.log("[janela] nenhuma janela visível ao abrir — recolocando")
+            window.setContentSize(NSSize(width: 1280, height: 820))
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     /// A player should keep playing with its window closed, the way Music does.
@@ -94,16 +126,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// windows" loop comes from.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
-    /// With window restoration off, relaunching an already-running app would
-    /// otherwise leave it with no window at all. Clicking the Dock icon — or
-    /// opening the app again — always brings a window back.
+    /// Clicking the Dock icon must always end with a window on screen.
+    ///
+    /// The previous version answered `true` unconditionally, which tells AppKit
+    /// "handled, do nothing further". When the app had a hidden window that was
+    /// fine. When it had *no* window — which happens, since the app deliberately
+    /// survives its last one closing — it was a dead end: the process stayed
+    /// alive, the Dock icon did nothing, and the only way back was to force-quit.
+    ///
+    /// Answering `false` hands the question back to AppKit, which asks the
+    /// `WindowGroup` for a new window. That is the only path that recovers from
+    /// having none.
     func applicationShouldHandleReopen(_ sender: NSApplication,
                                        hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows {
-            if let window = sender.windows.first(where: { !$0.isVisible }) {
-                window.makeKeyAndOrderFront(nil)
-            }
+        if hasVisibleWindows { return true }
+
+        // A window that exists but is hidden only needs bringing forward.
+        // `canBecomeMain` skips the panels and helpers SwiftUI keeps around,
+        // which are not what the user is asking for.
+        if let window = sender.windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return true
         }
-        return true
+        return false
     }
 }

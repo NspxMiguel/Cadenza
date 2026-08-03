@@ -108,15 +108,39 @@ final class GoogleAuth {
     private var accessToken: String?
     private var accessExpiry = Date.distantPast
 
-    var isSignedIn: Bool { TokenKeychain.read() != nil }
+    private static let connectedKey = "cadenza.google.connected"
+    private static let emailKey = "cadenza.google.email"
+
+    /// Whether there is a token, answered without waking the Keychain.
+    ///
+    /// Reading the Keychain is not a free question. If the item's access list
+    /// does not recognise the running binary — which happens after any rebuild,
+    /// and after any change of signing identity — macOS puts a modal password
+    /// dialog on screen. Asking from `init`, or from a settings pane merely
+    /// being drawn, meant that *opening the app* could demand the login
+    /// password with no explanation of why.
+    ///
+    /// Sign-in and sign-out already know the answer, so they record it. The
+    /// Keychain is touched only when a token is actually about to be used, and
+    /// at that point a prompt is both expected and explicable.
+    var isSignedIn: Bool { UserDefaults.standard.bool(forKey: Self.connectedKey) }
 
     private init() {
-        if isSignedIn { email = UserDefaults.standard.string(forKey: "cadenza.google.email") }
+        let defaults = UserDefaults.standard
+        // Someone who signed in before this flag existed still has their
+        // address on record. Take that as the answer rather than reading the
+        // Keychain to find out.
+        if defaults.object(forKey: Self.connectedKey) == nil,
+           defaults.string(forKey: Self.emailKey) != nil {
+            defaults.set(true, forKey: Self.connectedKey)
+        }
+        if isSignedIn { email = defaults.string(forKey: Self.emailKey) }
     }
 
     func signOut() {
         TokenKeychain.clear()
-        UserDefaults.standard.removeObject(forKey: "cadenza.google.email")
+        UserDefaults.standard.removeObject(forKey: Self.emailKey)
+        UserDefaults.standard.set(false, forKey: Self.connectedKey)
         accessToken = nil
         email = nil
     }
@@ -209,14 +233,17 @@ final class GoogleAuth {
         }
         accessToken = access
         accessExpiry = Date().addingTimeInterval((payload["expires_in"] as? Double ?? 3600) - 60)
-        if let refresh = payload["refresh_token"] as? String { TokenKeychain.store(refresh) }
+        if let refresh = payload["refresh_token"] as? String {
+            TokenKeychain.store(refresh)
+            UserDefaults.standard.set(true, forKey: Self.connectedKey)
+        }
 
         // The id_token carries the address; decoding its middle segment avoids
         // a second request just to show who is signed in.
         if let idToken = payload["id_token"] as? String,
            let address = Self.email(fromIDToken: idToken) {
             email = address
-            UserDefaults.standard.set(address, forKey: "cadenza.google.email")
+            UserDefaults.standard.set(address, forKey: Self.emailKey)
         }
     }
 

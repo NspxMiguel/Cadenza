@@ -69,6 +69,13 @@ struct TrackInfoEditor: View {
                 form
             }
             .padding(20)
+            // Return, from inside any field, saves.
+            //
+            // `.keyboardShortcut(.defaultAction)` on the button is not enough:
+            // while a text field holds focus the key press is the field's, and
+            // pressing Return simply did nothing — in a form of seven fields,
+            // the one gesture everybody tries.
+            .onSubmit(save)
 
             Divider()
             footer

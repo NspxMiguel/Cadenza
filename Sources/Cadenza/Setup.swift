@@ -99,7 +99,6 @@ private struct StepFrame<Content: View, Actions: View>: View {
                 Image(systemName: symbol)
                     .font(.system(size: 40, weight: .light))
                     .foregroundStyle(.tint)
-                    .padding(.top, 34)
 
                 Text(title)
                     .font(.cadenzaTitle(23))
@@ -115,7 +114,11 @@ private struct StepFrame<Content: View, Actions: View>: View {
                 content
                     .padding(.top, 6)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Centred rather than pinned to the top. These steps are short, and
+            // top-aligned they left half the sheet as blank space, which reads
+            // as something that failed to load.
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             Divider()
 
