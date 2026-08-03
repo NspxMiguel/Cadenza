@@ -89,6 +89,36 @@ enum SelfTest {
             say("  \(label): \(result)")
         }
 
+        // Reading tags is the part of local import that fails silently: a file
+        // whose composer never arrived looks exactly like a file that never had
+        // one. This reads a file without importing it and prints every field,
+        // so a regression shows up as a missing name rather than as a library
+        // that is subtly wrong for months.
+        say("")
+        say("=== etiquetas ===")
+        if let file = ProcessInfo.processInfo.environment["CADENZA_SELFTEST_TAGS"] {
+            if let track = await LocalLibrary.shared.inspect(URL(fileURLWithPath: file)) {
+                say("  título     : \(track.title)")
+                say("  intérprete : \(track.artist.isEmpty ? "—" : track.artist)")
+                say("  álbum      : \(track.album.isEmpty ? "—" : track.album)")
+                say("  compositor : \(track.composer ?? "—")")
+                say("  gênero     : \(track.genre ?? "—")")
+                say("  faixa nº   : \(track.trackNumber.map(String.init) ?? "—")")
+                say("  ano        : \(track.year.map(String.init) ?? "—")")
+                say("  capa       : \(track.artworkFile != nil ? "sim" : "—")")
+                // The specific mistake worth naming: an ID3 file's "creator"
+                // key is the composer's tag, and folding it into the artist put
+                // the composer where the performer belongs.
+                if let composer = track.composer, composer == track.artist {
+                    say("  FALHA: o compositor está ocupando o campo de intérprete")
+                }
+            } else {
+                say("  FALHA: não consegui ler \(file)")
+            }
+        } else {
+            say("  (defina CADENZA_SELFTEST_TAGS para testar)")
+        }
+
         say("")
         say("=== importação local ===")
         let folder = ProcessInfo.processInfo.environment["CADENZA_SELFTEST_AUDIO"]

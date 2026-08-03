@@ -59,8 +59,7 @@ final class LocalEngine: Player {
             nowPlaying = NowPlaying(
                 trackID: track.id,
                 title: track.title,
-                artist: [track.artist, track.album].filter { !$0.isEmpty }
-                    .joined(separator: " — "),
+                artist: track.billing,
                 artworkURL: LocalLibrary.shared.artworkURL(for: track),
                 duration: player.duration > 0 ? player.duration : track.duration)
             startTicking()

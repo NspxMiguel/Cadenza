@@ -11,7 +11,8 @@ import UniformTypeIdentifiers
 
 struct RootView: View {
     @State private var model = AppModel()
-    @State private var showingLogin = false
+    @State private var setup = SetupState.shared
+    @State private var info = TrackInfoRequest.shared
     @State private var expanded = false
 
     /// Filtering and ordering belong to the screen being looked at, not to the
@@ -69,6 +70,13 @@ struct RootView: View {
                 }
             }
             .animation(.snappy, value: LocalLibrary.shared.notice ?? PlaylistStore.shared.notice)
+            // Presented here rather than beside the setup sheet: two `.sheet`
+            // modifiers on the same view leave only the last one working.
+            .sheet(isPresented: $info.isPresented) {
+                TrackInfoEditor(tracks: info.tracks) {
+                    Task { await model.reload() }
+                }
+            }
         }
         .searchable(text: Binding(
             get: { model.searchTerm },
@@ -112,15 +120,18 @@ struct RootView: View {
         }
         .task {
             if model.needsLogin {
-                showingLogin = true
+                setup.begin(at: .appleMusic)
             } else {
                 Task { await Playback.shared.start() }
                 await model.start()
+                // Anyone who installed before the setup existed has never been
+                // shown the Drive step. Offer it once, from there on, and never
+                // again — the flag is written whichever way they answer.
+                if !setup.hasCompleted { setup.begin(at: .drive) }
             }
         }
-        .sheet(isPresented: $showingLogin) {
-            LoginSheet {
-                showingLogin = false
+        .sheet(isPresented: $setup.isPresented) {
+            SetupSheet {
                 Task { await Playback.shared.start() }
                 Task { await model.start() }
             }
@@ -178,34 +189,6 @@ struct RootView: View {
 
 /// Credentials are only obtainable from a signed-in session, so first run hands
 /// the user Apple's own login page and waits for the harvester to fire.
-struct LoginSheet: View {
-    let onComplete: () -> Void
-    @State private var probe = DRMProbe()
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Entre com seu Apple ID para o Cadenza acessar seu catálogo.")
-                    .font(.callout)
-                Spacer()
-                Button("Cancelar", action: onComplete)
-            }
-            .padding(12)
-
-            Divider()
-            ClassicalWebView(probe: probe)
-        }
-        .frame(width: 980, height: 700)
-        .task {
-            // The harvester runs in the page; poll until it has both tokens.
-            while !Task.isCancelled {
-                if TokenStore.shared.credentials != nil { onComplete(); return }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-    }
-}
-
 // MARK: - Sidebar
 
 struct Sidebar: View {
@@ -821,6 +804,10 @@ struct TrackMenu: View {
         // an Apple playlist or to the Apple library are all meaningless, and
         // offering them would be offering actions that cannot work.
         if item.playable?.type == LocalRoute.payloadType, let id = catalogID {
+            Button("Informações…") {
+                guard let track = LocalLibrary.shared.track(id: id) else { return }
+                TrackInfoRequest.shared.open([track])
+            }
             Button("Mostrar no Finder") {
                 if let track = LocalLibrary.shared.track(id: id),
                    let url = LocalLibrary.shared.url(for: track) {
@@ -1131,6 +1118,21 @@ struct ScreenHeader: View {
 
     @State private var notesExpanded = false
 
+    /// The local files this header stands for, when it stands for any.
+    ///
+    /// A whole album at once is the case worth serving: a rip is wrong the same
+    /// way on every track, and fixing the composer twelve times is how people
+    /// give up and leave a library mislabelled.
+    private var localTracks: [LocalTrack] {
+        guard let path = model?.current?.path else { return [] }
+        // An album only. The flat list of everything on the Mac is deliberately
+        // left out: "edit all 900 tracks" is a button whose best outcome is
+        // nothing happening.
+        guard path.hasPrefix(LocalRoute.albumPrefix) else { return [] }
+        let name = String(path.dropFirst(LocalRoute.albumPrefix.count))
+        return LocalLibrary.shared.albums().first { $0.name == name }?.tracks ?? []
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 22) {
             cover
@@ -1185,6 +1187,18 @@ struct ScreenHeader: View {
                             bigButton("Aleatório", icon: "shuffle") {
                                 start(context, shuffled: true)
                             }
+                        }
+
+                        // Only on local music: nothing here can correct what
+                        // Apple's catalogue says about its own recordings.
+                        if !localTracks.isEmpty {
+                            Button {
+                                TrackInfoRequest.shared.open(localTracks)
+                            } label: {
+                                Label("Informações", systemImage: "pencil")
+                            }
+                            .controlSize(.large)
+                            .help("Corrigir compositor, intérpretes, álbum e capa")
                         }
                     }
                     .padding(.top, 6)

@@ -13,18 +13,35 @@ final class StreamLog: @unchecked Sendable {
 final class CaptureLog: @unchecked Sendable {
     static let shared = CaptureLog(name: "endpoints.txt")
 
+    /// Off unless asked for.
+    ///
+    /// This was how the v10 surface got mapped, and it has no business running
+    /// afterwards: recording Apple's traffic to disk on every launch is the
+    /// definition of automated monitoring, it is the clause in Apple's terms
+    /// this project fits most squarely, and it earns an ordinary user nothing.
+    /// The tool stays, because the endpoints will change and will need mapping
+    /// again — it just no longer runs behind anyone's back.
+    private static let enabled = ProcessInfo.processInfo.environment["CADENZA_CAPTURE"] != nil
+
     private let queue = DispatchQueue(label: "cadenza.capture")
     private var seen = Set<String>()
     private let url: URL
 
     init(name: String) {
-        let dir = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Documents/Claude/Cadenza/capture", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Under Application Support rather than a path inside one particular
+        // person's home folder, which is where it used to write.
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = base.appendingPathComponent("Cadenza/capture", isDirectory: true)
+        if Self.enabled {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
         url = dir.appendingPathComponent(name)
     }
 
     func append(_ line: String) {
+        guard Self.enabled else { return }
         queue.async { [self] in
             // Collapse identifiers so repeated calls to the same endpoint shape
             // don't drown the log in near-duplicates.
