@@ -66,9 +66,7 @@ final class AppModel {
             // exactly why it belongs here: nothing else in the app can reach
             // a recording that was never on the service.
             Destination(name: "Músicas locais", symbol: "internaldrive",
-                        path: LocalRoute.path),
-            Destination(name: "Álbuns locais", symbol: "square.stack.3d.up",
-                        path: LocalRoute.albums)
+                        path: LocalRoute.path)
         ]
         var playlistRoot: Destination?
 
@@ -271,6 +269,27 @@ final class AppModel {
     /// Músicas locais. It looked like the click had been ignored.
     private func stillWanted(_ path: String) -> Bool { current?.path == path }
 
+    /// Folds the albums on this Mac into the library's album screen.
+    ///
+    /// They were a sidebar row of their own, which split one idea in two: an
+    /// album is an album whether it came from the catalog or from a rip, and
+    /// nobody looking for one wants to remember which list it is in.
+    private static func withLocalAlbums(_ screen: Screen) -> Screen {
+        guard screen.screenType == "libraryAlbums" else { return screen }
+        let local = LocalLibrary.shared.albumsScreen().allItems
+        guard !local.isEmpty else { return screen }
+
+        return Screen(
+            screenType: screen.screenType,
+            title: screen.title,
+            header: screen.header,
+            sections: screen.sections + [
+                ScreenSection(type: "albums", heading: "Neste Mac",
+                              components: [Component(type: "shelf", items: local)])
+            ],
+            firstPage: screen.firstPage)
+    }
+
     /// Screens assembled from files on this Mac. They need no network, so they
     /// render at once and have nothing to revalidate behind them.
     private func localScreen(for path: String) -> Screen? {
@@ -325,7 +344,7 @@ final class AppModel {
                 fetched = try await ClassicalAPI.shared.screen(at: path)
             }
             guard stillWanted(path) else { return }
-            screen = fetched
+            screen = Self.withLocalAlbums(fetched)
         } catch {
             // A failed refresh must not wipe a screen that is already readable,
             // and must not report on a screen the user has already left.

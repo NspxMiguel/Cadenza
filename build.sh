@@ -44,7 +44,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <!-- Required: MusicAuthorization.request() runs at launch to decide whether
          lossless is reachable. Without this string TCC kills the process
          outright, which reads as a crash on every launch. -->
-    <key>NSAppleMusicUsageDescription</key>
+    <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Google Sign-In</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>com.googleusercontent.apps.343088507785-tnetv9soj3rk1ickh7utb7hiosrn3eh1</string>
+      </array>
+    </dict>
+  </array>
+  <key>NSAppleMusicUsageDescription</key>
     <string>O Cadenza usa o Apple Music para tocar o catálogo de música clássica.</string>
 </dict>
 </plist>

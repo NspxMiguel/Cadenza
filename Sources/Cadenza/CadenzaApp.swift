@@ -9,6 +9,13 @@ struct CadenzaApp: App {
             RootView()
                 .frame(minWidth: 860, minHeight: 560)
                 .tint(.cadenzaAccent)
+                // Google hands the sign-in back through the app's own URL
+                // scheme rather than a local web server.
+                .onOpenURL { url in
+                    if url.scheme == GoogleCredentials.urlScheme {
+                        GoogleAuth.shared.handleCallback(url)
+                    }
+                }
         }
         .defaultSize(width: 1280, height: 820)
         .windowToolbarStyle(.unified)

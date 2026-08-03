@@ -1584,7 +1584,8 @@ struct ScoreSettings: View {
 // MARK: Storage
 
 struct StorageSettings: View {
-    @State private var cloud = CloudSync.shared
+    @State private var auth = GoogleAuth.shared
+    @State private var drive = DriveSync.shared
     @State private var cd = CDRip.shared
     @State private var size: Int64 = 0
     @State private var clearing = false
@@ -1660,39 +1661,57 @@ struct StorageSettings: View {
             }
 
             Section {
-                if let folder = cloud.folder {
-                    LabeledContent("Pasta") {
-                        Text(folder.lastPathComponent).foregroundStyle(.secondary)
+                if auth.isSignedIn {
+                    LabeledContent("Conta") {
+                        Text(auth.email ?? "conectado").foregroundStyle(.secondary)
                     }
-                    if let last = cloud.lastSync {
-                        LabeledContent("Última cópia") {
+                    if let last = drive.lastSync {
+                        LabeledContent("Última sincronização") {
                             Text(last.formatted(date: .abbreviated, time: .shortened))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     HStack(spacing: 10) {
-                        Button("Enviar para a nuvem") { Task { await cloud.push() } }
-                        Button("Trazer da nuvem") { Task { await cloud.pull() } }
+                        Button("Enviar para o Drive") { Task { await drive.push() } }
+                        Button("Trazer do Drive") { Task { await drive.pull() } }
                         Spacer()
-                        Button("Esquecer pasta") { cloud.forget() }.buttonStyle(.link)
+                        Button("Sair") { auth.signOut() }.buttonStyle(.link)
                     }
-                    if let status = cloud.status {
-                        Text(status).font(.callout).foregroundStyle(.secondary)
+                    switch drive.state {
+                    case .working(let step):
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.small)
+                            Text(step).font(.callout).foregroundStyle(.secondary)
+                        }
+                    case .done(let message):
+                        Text(message).font(.callout).foregroundStyle(.secondary)
+                    case .failed(let message):
+                        Text(message).font(.callout).foregroundStyle(.orange)
+                    case .idle:
+                        EmptyView()
                     }
                 } else {
-                    Button("Escolher pasta sincronizada…") { cloud.chooseFolder() }
-                    if !CloudSync.knownServices().isEmpty {
-                        Text("Encontrei aqui: "
-                             + CloudSync.knownServices().map(\.name).joined(separator: ", "))
-                            .font(.caption).foregroundStyle(.tertiary)
+                    Button {
+                        Task { await auth.signIn() }
+                    } label: {
+                        HStack(spacing: 7) {
+                            if auth.busy { ProgressView().controlSize(.small) }
+                            Text("Entrar com o Google")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(auth.busy)
+
+                    if let error = auth.lastError {
+                        Text(error).font(.callout).foregroundStyle(.orange)
                     }
                 }
             } header: {
-                Text("Músicas locais na nuvem")
+                Text("Músicas locais no Google Drive")
             } footer: {
-                Text("Sem login: o Google Drive, o iCloud Drive e o Dropbox já aparecem "
-                     + "como pastas no Mac, e o Cadenza copia sua biblioteca para a que "
-                     + "você escolher. Nada é apagado — só copiado.")
+                Text("Tudo vai para uma pasta só: Cadenza › Músicas, com o catálogo ao lado. "
+                     + "O Cadenza só enxerga o que ele mesmo criou no seu Drive — não tem "
+                     + "acesso ao resto.")
                 .font(.caption).foregroundStyle(.secondary)
             }
         }
