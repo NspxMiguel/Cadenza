@@ -21,7 +21,6 @@ struct FloatingPlayer: View {
     @State private var dragFraction: Double?
     @State private var showingLyrics = false
     @State private var showingQueue = false
-    @State private var showingScore = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -185,7 +184,6 @@ struct FloatingPlayer: View {
                             current: Favourites.shared.isFavourite(id: track.trackID))
                     }
                 }
-                Button("Partitura") { showingScore = true }
                 Divider()
                 SleepTimerMenu()
             } label: {
@@ -194,16 +192,16 @@ struct FloatingPlayer: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 16)
-            .popover(isPresented: $showingScore, arrowEdge: .top) {
-                ScorePanel().frame(width: 900, height: 660)
-            }
 
             Button { showingLyrics.toggle() } label: {
                 Image(systemName: "quote.bubble")
             }
-            .help("Letra")
+            // One button, not two. Lyrics and score answer the same question —
+            // what is being sung and what is written — and splitting them left
+            // the score behind a menu while the words had a button of their own.
+            .help("Letra e partitura")
             .popover(isPresented: $showingLyrics, arrowEdge: .top) {
-                LyricsPanel().frame(width: 440, height: 420)
+                ScorePanel().frame(width: 900, height: 660)
             }
 
             Button { showingQueue.toggle() } label: {

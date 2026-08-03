@@ -106,6 +106,12 @@ protocol Player: AnyObject {
 
     var queue: [QueueEntry] { get }
     func jump(to entryID: String)
+    /// Whether the queue can be rearranged. WebKit's MusicKit exposes no
+    /// reordering, so saying no is more honest than offering a drag that
+    /// silently does nothing.
+    var canEditQueue: Bool { get }
+    func moveQueue(from offsets: IndexSet, to destination: Int)
+    func removeFromQueue(_ entryID: String)
 }
 
 extension Player {
@@ -128,6 +134,9 @@ extension Player {
 
     var queue: [QueueEntry] { [] }
     func jump(to entryID: String) {}
+    var canEditQueue: Bool { false }
+    func moveQueue(from offsets: IndexSet, to destination: Int) {}
+    func removeFromQueue(_ entryID: String) {}
 }
 
 extension Player {

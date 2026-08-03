@@ -165,6 +165,29 @@ final class LocalEngine: Player {
         start(queueTracks[index])
     }
 
+    /// The local queue is ours, so it can be rearranged. The cursor follows the
+    /// track that is playing rather than the index it used to sit at — moving
+    /// a later track must not change what is currently sounding.
+    var canEditQueue: Bool { true }
+
+    func moveQueue(from offsets: IndexSet, to destination: Int) {
+        let playing = queueTracks[safe: cursor]
+        queueTracks.move(fromOffsets: offsets, toOffset: destination)
+        if let playing, let index = queueTracks.firstIndex(of: playing) { cursor = index }
+    }
+
+    func removeFromQueue(_ entryID: String) {
+        guard let index = queueTracks.firstIndex(where: { $0.id == entryID }) else { return }
+        // Removing what is playing would leave the engine pointing at a track
+        // that is no longer in the queue, so that one is skipped past first.
+        if index == cursor {
+            skipForward()
+            return
+        }
+        queueTracks.remove(at: index)
+        if index < cursor { cursor -= 1 }
+    }
+
     func fadeOutAndPause(over seconds: TimeInterval) {
         guard let player else { return }
         player.setVolume(0, fadeDuration: seconds)

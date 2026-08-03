@@ -1988,17 +1988,29 @@ struct ScorePanel: View {
                 ProgressView("Procurando partitura…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // The AI option belongs here, where the score is missing. It
-                // was written but never placed in the view, which is the whole
-                // reason turning the setting on appeared to do nothing.
-                ContentUnavailableView {
-                    Label("Sem partitura", systemImage: "doc.text.magnifyingglass")
-                } description: {
-                    Text("Nenhuma gravura de domínio público foi encontrada para esta "
-                         + "faixa. O acervo aberto cobre sobretudo Lieder e quartetos "
-                         + "de cordas — trilhas de cinema e de jogos não estão nele.")
-                } actions: {
-                    aiOption
+                // No engraving for this recording — but the words may well
+                // exist, and they are what the listener opened this panel for.
+                // An empty "sem partitura" here threw away the half that was
+                // available.
+                VStack(spacing: 0) {
+                    LyricsPanel()
+
+                    Divider()
+                    VStack(spacing: 8) {
+                        Text("Sem partitura para esta gravação")
+                            .font(.callout.weight(.medium))
+                        Text("O acervo aberto cobre sobretudo Lieder, quartetos e o "
+                             + "repertório de teclado. Trilhas de cinema e de jogos não "
+                             + "estão nele — não são de domínio público.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 460)
+                        aiOption
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(.quaternary.opacity(0.2))
                 }
             }
         }
@@ -2104,6 +2116,12 @@ struct ScorePanel: View {
     }
 }
 
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 /// What is lined up after this track.
 ///
 /// The queue was invisible until now, which made the whole app feel like it
@@ -2124,6 +2142,11 @@ struct QueueList: View {
                 List {
                     ForEach(engine.queue) { entry in
                         HStack(spacing: 9) {
+                            if engine.canEditQueue {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                             Image(systemName: entry.isCurrent
                                   ? "speaker.wave.2.fill" : "music.note")
                                 .font(.caption)
@@ -2141,7 +2164,26 @@ struct QueueList: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { engine.jump(to: entry.id) }
+                        .contextMenu {
+                            if engine.canEditQueue {
+                                Button("Remover da fila", role: .destructive) {
+                                    engine.removeFromQueue(entry.id)
+                                }
+                            }
+                        }
                     }
+                    .onMove { offsets, destination in
+                        engine.moveQueue(from: offsets, to: destination)
+                    }
+                    .onDelete { offsets in
+                        for index in offsets {
+                            if let entry = engine.queue[safe: index] {
+                                engine.removeFromQueue(entry.id)
+                            }
+                        }
+                    }
+                    .moveDisabled(!engine.canEditQueue)
+                    .deleteDisabled(!engine.canEditQueue)
                 }
                 .listStyle(.inset)
             }
