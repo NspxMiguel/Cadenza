@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de Privacidade — Cadenza</title>
+<style>
+:root { color-scheme: light dark; --ink:#1c1c1e; --dim:#6b6b70; --rule:#e3e3e6;
+        --bg:#fff; --link:#b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#ececf0; --dim:#9a9aa0; --rule:#2c2c2e; --bg:#161618; --link:#ff6b60; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+       font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+       -webkit-font-smoothing:antialiased; }
+main { max-width:44rem; margin:0 auto; padding:3.5rem 1.5rem 5rem; }
+h1 { font-size:2rem; line-height:1.2; margin:0 0 .4rem; letter-spacing:-.02em; }
+h2 { font-size:1.25rem; margin:2.4rem 0 .6rem; letter-spacing:-.01em; }
+h3 { font-size:1.02rem; margin:1.6rem 0 .4rem; }
+p, li { margin:0 0 .85rem; }
+ul { padding-left:1.2rem; }
+a { color:var(--link); text-decoration:none; }
+a:hover { text-decoration:underline; }
+hr { border:0; border-top:1px solid var(--rule); margin:2.2rem 0; }
+code { font-size:.9em; background:color-mix(in srgb, var(--ink) 8%, transparent);
+       padding:.12em .35em; border-radius:4px; }
+nav { display:flex; gap:1.1rem; flex-wrap:wrap; padding-bottom:1.6rem;
+      margin-bottom:2rem; border-bottom:1px solid var(--rule); font-size:.92rem; }
+nav a { color:var(--dim); }
+nav a[aria-current] { color:var(--ink); font-weight:600; }
+footer { margin-top:3.5rem; padding-top:1.4rem; border-top:1px solid var(--rule);
+         color:var(--dim); font-size:.86rem; }
+</style>
+</head>
+<body>
+<main>
+<nav><a href="privacidade.html" aria-current="page">Política de Privacidade</a>
+<a href="termos.html">Termos de Uso</a>
+<a href="licencas.html">Licenças e créditos</a></nav>
+<h1>Política de Privacidade</h1>
+<p>Versão de 3 de agosto de 2026.</p>
+<h2>O essencial, primeiro</h2>
+<p><strong>Nada do que você faz no Cadenza chega até quem o desenvolveu.</strong></p>
+<p>Não existe servidor do Cadenza. Não existe cadastro, conta nem login neste app. Não há telemetria, análise de uso, relatório de falhas nem qualquer biblioteca de rastreamento. O autor do app não recebe seu nome, seu e-mail, o que você ouve, quando ouve, nem que ele foi aberto.</p>
+<p>O app roda no seu Mac e fala com dois serviços — a Apple e o Google — porque <strong>você</strong> tem conta neles e pediu que ele os usasse. O que trafega vai direto do seu computador para eles, sem intermediário.</p>
+<h2>O que fica guardado, e onde</h2>
+<p>Tudo no seu próprio Mac:</p>
+<ul>
+<li><strong>Credenciais da Apple Music</strong> — em <code>~/Library/Application Support/Cadenza/</code>, com permissão de leitura só para o seu usuário. São os mesmos tokens que o site da Apple entrega ao navegador quando você entra.</li>
+<li><strong>Token do Google</strong> — na Chaveira do macOS, cifrada pelo sistema. Não fica em arquivo de preferências.</li>
+<li><strong>Catálogo das músicas locais</strong> — títulos, intérpretes, compositores, álbuns e o caminho dos arquivos, em <code>~/Library/Application Support/Cadenza/local-library.json</code>. Os arquivos de áudio não são copiados: o app só aponta para onde eles já estão.</li>
+<li><strong>Capas das músicas locais</strong> — em <code>~/Library/Application Support/Cadenza/local-artwork/</code>.</li>
+<li><strong>Partituras baixadas e resultados de leitura de gravuras</strong> — em <code>~/Library/Application Support/Cadenza/partituras/</code> e <code>.../omr/</code>.</li>
+<li><strong>Preferências</strong> — idioma, zoom da partitura, motor de áudio, em UserDefaults.</li>
+<li><strong>Cookies e dados de site</strong> do player da Apple, guardados pelo WebKit onde o macOS guarda os de qualquer app.</li>
+</ul>
+<h3>Como apagar tudo</h3>
+<ul>
+<li>Em <strong>Ajustes ▸ Armazenamento</strong>, use <strong>Sair</strong> para desconectar o Google — isso apaga o token da Chaveira.</li>
+<li>Apague a pasta <code>~/Library/Application Support/Cadenza/</code>.</li>
+<li>Apague o app.</li>
+<li>Se quiser, apague a pasta <code>Cadenza</code> no seu Google Drive e revogue o acesso em <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+</ul>
+<p>Não é preciso pedir nada a ninguém: não existe cópia em outro lugar.</p>
+<h2>Google Drive</h2>
+<p>Conectar o Google é opcional. O app nunca faz isso sozinho — só quando você clica em <strong>Entrar com o Google</strong>.</p>
+<p>O Cadenza pede um único escopo, <code>drive.file</code>. Ele significa, literalmente, que <strong>o app só enxerga arquivos que ele mesmo criou</strong>. O resto do seu Drive — documentos, fotos, planilhas — é invisível para ele, e isso é o Google quem garante, não este texto.</p>
+<p>O que vai para lá são os arquivos de música que você mesmo importou e um <code>biblioteca.json</code> com os títulos, álbuns, compositores e referências de capa que você editou. Tudo dentro de uma pasta só, <code>Cadenza</code>, que você pode abrir, inspecionar e apagar quando quiser. O envio e a busca são sempre iniciados por você, num botão; nada sobe em segundo plano.</p>
+<p>O login acontece no seu navegador, na página do próprio Google. O app não vê sua senha.</p>
+<h3>Limited Use</h3>
+<p>&gt; Cadenza&#x27;s use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+<p>Em português: o uso que o Cadenza faz — e qualquer transferência para outro app — das informações recebidas das APIs do Google segue a Política de Dados do Usuário dos Serviços de API do Google, incluindo os requisitos de Uso Limitado. Na prática: os dados do seu Drive servem só para a função que você acionou, não são transferidos a ninguém, não alimentam publicidade, não são lidos por pessoa alguma e não treinam modelo nenhum.</p>
+<h2>Apple Music</h2>
+<p>Você entra com o seu Apple ID, na página da Apple, dentro de uma janela do app. A senha vai para a Apple; o Cadenza não a lê nem a guarda. O que ele guarda são os tokens que a sessão devolve, e são eles que permitem mostrar a sua biblioteca e tocar pela sua assinatura.</p>
+<p>O que você faz no app — tocar, favoritar, criar playlist — acontece na sua conta da Apple e está sujeito à <a href="https://www.apple.com/br/legal/privacy/">Política de Privacidade da Apple</a>.</p>
+<h2>Outros serviços que o app contata</h2>
+<ul>
+<li><strong>github.com</strong> — para baixar partituras de domínio público dos acervos OpenScore e Humdrum. Vai só o pedido do arquivo.</li>
+<li><strong>verovio.org</strong> — para carregar o programa que desenha a partitura na tela.</li>
+<li><strong>pypi.org</strong> — apenas se você pedir a leitura de uma gravura escaneada, para instalar o reconhecedor. A imagem em si nunca sai do seu Mac.</li>
+</ul>
+<p>Nenhum deles recebe quem você é. Como qualquer servidor da internet, eles registram o endereço IP de quem faz o pedido.</p>
+<p>A tradução de letras usa o tradutor do próprio macOS e roda no seu computador — o texto não é enviado para lugar nenhum.</p>
+<h2>Crianças</h2>
+<p>O Cadenza não é dirigido a crianças e não coleta dado nenhum de ninguém, de qualquer idade.</p>
+<h2>Seus direitos</h2>
+<p>A pergunta que essas leis existem para responder — *o que essa empresa sabe sobre mim, e como faço para apagar?* — aqui tem resposta curta: <strong>nada</strong>, e você apaga sozinho, nos passos acima.</p>
+<p>Ainda assim, vale dizer onde cada direito se exerce:</p>
+<ul>
+<li><strong>LGPD</strong> (Brasil, Lei 13.709/2018) — acesso, correção, eliminação, portabilidade. Como o autor do app não recebe nem trata dado pessoal seu, ele não é controlador de nada que seja seu, e não há pedido a fazer a ele. Os dados estão na sua máquina e nas suas contas da Apple e do Google.</li>
+<li><strong>GDPR</strong> (União Europeia) e <strong>UK GDPR</strong> — artigos 15 a 21. Mesma situação: sem tratamento pelo desenvolvedor, não há a quem requerer. Para os dados nas contas que você conectou, use <a href="https://privacy.apple.com">privacy.apple.com</a> e <a href="https://takeout.google.com">takeout.google.com</a>.</li>
+<li><strong>CCPA/CPRA</strong> (Califórnia) — o Cadenza não vende nem compartilha informação pessoal. Não há o que recusar.</li>
+<li><strong>APPI</strong> (Japão) — o app não mantém base de dados pessoais.</li>
+<li><strong>Revogar o Google</strong> a qualquer momento, sem passar pelo app: <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+</ul>
+<h2>Mudanças</h2>
+<p>Se esta política mudar, a versão nova sai junto com uma versão do app e a data no topo muda. O histórico completo fica público no repositório.</p>
+<h2>Contato</h2>
+<p>Abra uma questão em <a href="https://github.com/NspxMiguel/Cadenza/issues">github.com/NspxMiguel/Cadenza/issues</a>. É o canal do projeto, e fica registrado.</p>
+<footer>
+Cadenza é um projeto independente, sem vínculo com a Apple Inc. ou a Google LLC.
+<a href="https://github.com/NspxMiguel/Cadenza">Código-fonte no GitHub</a>.
+</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Licenças e créditos — Cadenza</title>
+<style>
+:root { color-scheme: light dark; --ink:#1c1c1e; --dim:#6b6b70; --rule:#e3e3e6;
+        --bg:#fff; --link:#b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#ececf0; --dim:#9a9aa0; --rule:#2c2c2e; --bg:#161618; --link:#ff6b60; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+       font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+       -webkit-font-smoothing:antialiased; }
+main { max-width:44rem; margin:0 auto; padding:3.5rem 1.5rem 5rem; }
+h1 { font-size:2rem; line-height:1.2; margin:0 0 .4rem; letter-spacing:-.02em; }
+h2 { font-size:1.25rem; margin:2.4rem 0 .6rem; letter-spacing:-.01em; }
+h3 { font-size:1.02rem; margin:1.6rem 0 .4rem; }
+p, li { margin:0 0 .85rem; }
+ul { padding-left:1.2rem; }
+a { color:var(--link); text-decoration:none; }
+a:hover { text-decoration:underline; }
+hr { border:0; border-top:1px solid var(--rule); margin:2.2rem 0; }
+code { font-size:.9em; background:color-mix(in srgb, var(--ink) 8%, transparent);
+       padding:.12em .35em; border-radius:4px; }
+nav { display:flex; gap:1.1rem; flex-wrap:wrap; padding-bottom:1.6rem;
+      margin-bottom:2rem; border-bottom:1px solid var(--rule); font-size:.92rem; }
+nav a { color:var(--dim); }
+nav a[aria-current] { color:var(--ink); font-weight:600; }
+footer { margin-top:3.5rem; padding-top:1.4rem; border-top:1px solid var(--rule);
+         color:var(--dim); font-size:.86rem; }
+</style>
+</head>
+<body>
+<main>
+<nav><a href="privacidade.html">Política de Privacidade</a>
+<a href="termos.html">Termos de Uso</a>
+<a href="licencas.html" aria-current="page">Licenças e créditos</a></nav>
+<h1>Licenças e créditos</h1>
+<p>O Cadenza é um projeto independente. <strong>Não tem vínculo, patrocínio nem endosso da Apple Inc. ou da Google LLC.</strong> Apple Music, Apple Music Classical e as marcas relacionadas pertencem à Apple Inc.; Google Drive pertence à Google LLC. Os nomes aparecem aqui apenas para dizer com o que o app conversa.</p>
+<h2>O próprio Cadenza</h2>
+<p>Licença MIT. Copyright © 2026 Miguel Moretti. O texto completo está no arquivo <code>LICENSE</code> do repositório: <a href="https://github.com/NspxMiguel/Cadenza">github.com/NspxMiguel/Cadenza</a>.</p>
+<p>Em resumo: você pode usar, copiar, alterar e redistribuir, inclusive comercialmente, desde que mantenha o aviso de copyright. O software vem sem garantia.</p>
+<h2>Partituras</h2>
+<p>Nenhuma partitura é escrita por este app. Todas vêm de acervos públicos de terceiros, baixadas na hora, e cada uma carrega os termos de quem a digitou.</p>
+<h3>OpenScore — CC0 1.0</h3>
+<p>*Lieder Corpus* e *String Quartets Corpus*, do projeto OpenScore.</p>
+<p>Dedicados ao domínio público sob <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a>. Não exigem atribuição — mas alguém digitou cada nota, e isso merece o crédito que o app dá no rodapé da partitura.</p>
+<h3>Edições Humdrum de Craig Stuart Sapp</h3>
+<p>Oito acervos de <code>**kern</code>, do repertório de teclado e quarteto de cordas. Copyright © Craig Stuart Sapp / CCARH.</p>
+<p>Quatro deles declaram licença <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> — atribuição, uso <strong>não comercial</strong>, e compartilhamento sob a mesma licença:</p>
+<ul>
+<li>Sonatas para piano de Mozart</li>
+<li>Sonatas para piano de Haydn</li>
+<li>Sonatas para teclado de Scarlatti</li>
+<li>Obras de Scott Joplin</li>
+</ul>
+<p>Os outros quatro não declaram licença nenhuma:</p>
+<ul>
+<li>Sonatas para piano de Beethoven</li>
+<li>Mazurcas de Chopin</li>
+<li>Prelúdios de Chopin</li>
+<li>Quartetos de cordas de Beethoven</li>
+</ul>
+<p>Sem declaração, o padrão legal é &quot;todos os direitos reservados&quot;. O Cadenza os exibe como leitura pessoal, sempre creditando o editor, e nunca os redistribui — o download vai direto do repositório de origem para a sua máquina, sem passar por nenhum servidor deste projeto.</p>
+<p>A cláusula <strong>não comercial</strong> é vinculante enquanto o app trouxer esses acervos: o Cadenza não pode ser vendido, nem monetizado, nem embutido em algo que seja.</p>
+<h2>Verovio — LGPL 3.0</h2>
+<p>A gravação das partituras na tela é feita pelo <a href="https://www.verovio.org">Verovio</a>, do RISM Digital Center, sob <a href="https://www.gnu.org/licenses/lgpl-3.0.html">LGPL 3.0</a>.</p>
+<p>O Verovio não é distribuído com o Cadenza: é carregado do site do próprio projeto quando você abre uma partitura, e roda dentro de uma webview isolada.</p>
+<h2>oemer — MIT</h2>
+<p>O reconhecimento de partituras escaneadas usa o <a href="https://github.com/BreezeWhite/oemer">oemer</a>, de BreezeWhite, sob licença MIT.</p>
+<p>Não vem junto com o app. É instalado sob demanda, num ambiente Python separado, na primeira vez que você pede a leitura de uma gravura — e roda inteiramente na sua máquina, sem enviar a imagem para lugar nenhum.</p>
+<h2>Conteúdo da Apple e do Google</h2>
+<p>Catálogo, capas, textos editoriais, letras e áudio do Apple Music Classical pertencem à Apple Inc. e aos titulares dos direitos das gravações. O Cadenza apenas os exibe e os reproduz pela sua assinatura; não os armazena, não os decifra e não os redistribui.</p>
+<p>Os arquivos que você envia para o Google Drive continuam seus. O Cadenza usa o escopo <code>drive.file</code>, que só dá acesso ao que o próprio app criou.</p>
+<h2>Fontes tipográficas e ícones</h2>
+<p>A interface usa fontes e símbolos do sistema (SF Pro e SF Symbols), fornecidos pela Apple com o macOS e sujeitos aos termos dela.</p>
+<footer>
+Cadenza é um projeto independente, sem vínculo com a Apple Inc. ou a Google LLC.
+<a href="https://github.com/NspxMiguel/Cadenza">Código-fonte no GitHub</a>.
+</footer>
+</main>
+</body>
+</html>
