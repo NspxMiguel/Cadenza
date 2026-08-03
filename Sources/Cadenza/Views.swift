@@ -1089,19 +1089,25 @@ struct StatusStrip: View {
         }
     }
 
+    /// Legible over anything, because it floats over the list.
+    ///
+    /// It used to be secondary text on a half-transparent quaternary fill —
+    /// which over a wall of album covers was not readable at all. A capsule of
+    /// material, the way the notice above it already did it, is the same
+    /// component the rest of the app uses for a floating message.
     private func line(icon: String?, text: String, working: Bool) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             if working {
                 ProgressView().controlSize(.small)
             } else if let icon {
-                Image(systemName: icon)
+                Image(systemName: icon).foregroundStyle(.secondary)
             }
             Text(text).font(.callout)
-            Spacer()
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 16).padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5))
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary))
+        .shadow(radius: 5, y: 2)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
@@ -1603,6 +1609,7 @@ struct StorageSettings: View {
     @State private var cd = CDRip.shared
     @State private var size: Int64 = 0
     @State private var clearing = false
+    @State private var showingPolicy: LegalDocument?
 
     var body: some View {
         Form {
@@ -1723,14 +1730,25 @@ struct StorageSettings: View {
             } header: {
                 Text("Músicas locais no Google Drive")
             } footer: {
-                Text("Tudo vai para uma pasta só: Cadenza › Músicas, com o catálogo ao lado. "
-                     + "O Cadenza só enxerga o que ele mesmo criou no seu Drive — não tem "
-                     + "acesso ao resto.")
+                // Google requires this explained where the decision is made, not
+                // only on a website — and it is the right place for it anyway:
+                // nobody reads a policy before clicking, but everybody reads the
+                // line under the button.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tudo vai para uma pasta só: Cadenza › Músicas, com o catálogo "
+                         + "ao lado. O Cadenza só enxerga o que ele mesmo criou no seu "
+                         + "Drive — não tem acesso ao resto, e nada é enviado para quem "
+                         + "fez o app.")
+                    Button("Política de Privacidade") { showingPolicy = .privacy }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                }
                 .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .sheet(item: $showingPolicy) { LegalSheet(document: $0) }
         .task { size = await ScreenCache.shared.size() }
     }
 }
@@ -1738,6 +1756,8 @@ struct StorageSettings: View {
 // MARK: About
 
 struct AboutSettings: View {
+    @State private var showing: LegalDocument?
+
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1"
     }
@@ -1764,9 +1784,23 @@ struct AboutSettings: View {
             Link("Código-fonte no GitHub",
                  destination: URL(string: "https://github.com/NspxMiguel/Cadenza")!)
             .font(.callout)
+
             Spacer()
+
+            // Inside the app rather than only on a website: someone deciding
+            // whether to connect their Drive should not have to go looking for
+            // what happens to their data.
+            HStack(spacing: 14) {
+                ForEach(LegalDocument.allCases) { document in
+                    Button(document.title) { showing = document }
+                        .buttonStyle(.link)
+                        .font(.callout)
+                }
+            }
+            .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(item: $showing) { LegalSheet(document: $0) }
     }
 }
 
@@ -1961,11 +1995,23 @@ struct ScorePanel: View {
                 Divider()
                 HStack(spacing: 10) {
                     if let match {
-                        Text("\(match.composer) — \(match.title)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .help(match.title)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("\(match.composer) — \(match.title)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            // The engraver's credit, which the licence on these
+                            // editions requires and which the app owes anyway:
+                            // someone typed every note of this in by hand.
+                            if let credit = match.credit {
+                                Text(credit.who)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .help("\(credit.who) · \(credit.licence)")
+                            }
+                        }
+                        .help(match.title)
                     }
                     Spacer()
 

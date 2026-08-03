@@ -38,6 +38,35 @@ actor ScoreService {
         let composer: String
         let downloadURL: URL
         let format: Format
+
+        /// Who engraved this, and under what terms.
+        ///
+        /// Not a courtesy. The Humdrum editions are Craig Stuart Sapp's work,
+        /// and four of the eight corpora are licensed CC BY-NC-SA 4.0, which
+        /// requires the credit to travel with the score. Showing an engraving
+        /// with no attribution is the one obligation those licences impose, and
+        /// the app was ignoring it. The OpenScore corpora are CC0 and require
+        /// nothing, but the people who typed them in are still worth naming.
+        var credit: (who: String, licence: String)? {
+            let path = downloadURL.path
+            if path.contains("/OpenScore/") {
+                return ("OpenScore", "CC0 1.0 — domínio público")
+            }
+            guard path.contains("/craigsapp/") else { return nil }
+            let declared = Self.ccLicensed.contains { path.contains("/craigsapp/\($0)/") }
+            return ("Edição digital de Craig Stuart Sapp",
+                    declared
+                        ? "CC BY-NC-SA 4.0 — atribuição, não comercial, compartilha igual"
+                        : "sem licença declarada pelo editor")
+        }
+
+        /// The corpora that state CC BY-NC-SA 4.0 in a LICENSE file. The other
+        /// four state nothing at all, and saying they are CC-licensed would be
+        /// inventing a permission nobody granted.
+        private static let ccLicensed = [
+            "mozart-piano-sonatas", "haydn-piano-sonatas",
+            "scarlatti-keyboard-sonatas", "joplin",
+        ]
     }
 
     struct Entry: Codable, Sendable {

@@ -70,6 +70,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // The published copies of the legal documents are generated from the
+        // same strings the app displays, so the website and the app can never
+        // say different things.
+        if let target = ProcessInfo.processInfo.environment["CADENZA_EMIT_LEGAL"] {
+            LegalDocument.emit(to: URL(fileURLWithPath: target))
+            exit(0)
+        }
+
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NowPlayingCenter.shared.activate()
