@@ -89,7 +89,27 @@ ENTITLEMENTS
         --entitlements "$ENT" --sign "$IDENTITY" "$APP"
     rm -f "$ENT"
 else
-    codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
+    # Prefer a real identity even without a team, and sign with no entitlements
+    # so no provisioning profile is needed.
+    #
+    # This is about the Keychain, not about trust. An ad-hoc signature has no
+    # stable identity: every build hashes differently, so the Keychain sees a
+    # brand-new application each time and asks for the login password again
+    # before it will hand over the Google refresh token. Signing with the same
+    # certificate on every build keeps the item's access list valid, and the
+    # question gets asked once instead of after every rebuild.
+    IDENTITY=$(security find-identity -v -p codesigning \
+        | grep -m1 '"' | sed -E 's/.*"(.*)"/\1/')
+
+    if [ -n "$IDENTITY" ] && codesign --force --sign "$IDENTITY" \
+        --timestamp=none "$APP" >/dev/null 2>&1; then
+        echo "assinado com: $IDENTITY"
+    else
+        # No certificate, or an expired one. Ad-hoc still runs; it just means
+        # the Keychain prompt comes back after each build.
+        codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1 || true
+        echo "assinado ad-hoc — a Chaveira vai perguntar de novo a cada build"
+    fi
 fi
 
 echo "→ $APP"
