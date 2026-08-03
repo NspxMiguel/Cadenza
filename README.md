@@ -140,6 +140,25 @@ of the app. The first creates and deletes real playlists and library entries in
 whichever account is signed in, and the second walks the private API. Neither is
 invoked by Cadenza; read them before running either.
 
+## Legal
+
+- [Política de Privacidade](https://nspxmiguel.github.io/Cadenza/privacidade.html)
+- [Termos de Uso](https://nspxmiguel.github.io/Cadenza/termos.html)
+- [Licenças e créditos](https://nspxmiguel.github.io/Cadenza/licencas.html)
+
+The same texts are shown inside the app under **Ajustes ▸ Sobre**, and are
+generated from `Sources/Cadenza/LegalText.swift` — the website cannot drift from
+what the app says. Regenerate with:
+
+```bash
+CADENZA_EMIT_LEGAL=/tmp/legal ./.build/debug/Cadenza && python3 tools/emit-site.py /tmp/legal /tmp/site
+```
+
+Cadenza is an independent project, not affiliated with Apple Inc. or Google LLC.
+Source code is MIT. The Humdrum score corpora are Craig Stuart Sapp's editions,
+four of them under CC BY-NC-SA 4.0 — **the non-commercial clause binds anyone
+redistributing this app while it ships them.**
+
 ## Caveats
 
 The `v10` endpoints are private and undocumented. They carry no compatibility
