@@ -17,6 +17,33 @@ struct CadenzaApp: App {
                 Button("Importar músicas…") { LocalLibrary.shared.promptForFiles() }
                     .keyboardShortcut("i", modifiers: .command)
             }
+
+            // A music app should answer the space bar and the arrow keys
+            // without the pointer having to find a button first.
+            CommandMenu("Reproduzir") {
+                Button("Reproduzir/Pausar") {
+                    Playback.shared.active.togglePlayPause()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+
+                Button("Próxima") { Playback.shared.active.skipForward() }
+                    .keyboardShortcut(.rightArrow, modifiers: .command)
+                Button("Anterior") { Playback.shared.active.skipBackward() }
+                    .keyboardShortcut(.leftArrow, modifiers: .command)
+
+                Divider()
+
+                Button("Avançar 15s") {
+                    let engine = Playback.shared.active
+                    engine.seek(to: engine.position + 15)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
+                Button("Voltar 15s") {
+                    let engine = Playback.shared.active
+                    engine.seek(to: max(0, engine.position - 15))
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
+            }
         }
 
         Settings { SettingsView() }

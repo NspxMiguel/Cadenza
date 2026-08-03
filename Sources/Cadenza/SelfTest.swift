@@ -224,6 +224,21 @@ enum SelfTest {
         if model.screen?.screenType != LocalRoute.screenType {
             lines.append("FALHA: a requisição lenta sobrescreveu a tela atual")
         }
+
+        // Every destination the sidebar offers, opened in turn. A screen that
+        // decodes to nothing looks identical to a screen the server said was
+        // empty, so the count is reported next to what the screen claims to be.
+        lines.append("")
+        lines.append("todas as telas:")
+        for destino in model.fixed + model.library + model.playlists {
+            await model.select(destino)
+            let screen = model.screen
+            let rows = (screen?.firstPage?.items.count ?? 0)
+                + (screen?.sections.flatMap { $0.components.flatMap(\.items) }.count ?? 0)
+            let estado = model.error.map { "ERRO: \($0)" }
+                ?? "\(screen?.screenType ?? "nil") — \(rows) item(s)"
+            lines.append("  \(destino.name.padding(toLength: 22, withPad: " ", startingAt: 0)) \(estado)")
+        }
         return lines
     }
 }

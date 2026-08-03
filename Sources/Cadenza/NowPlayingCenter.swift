@@ -13,7 +13,14 @@ final class NowPlayingCenter {
     private var artworkCache: (url: URL, image: NSImage)?
     private var lastPublished: String?
 
-    private var engine: WebKitEngine { WebKitEngine.shared }
+    /// Whichever engine is playing, not a fixed one.
+    ///
+    /// This was wired straight to the WebKit engine, which is wrong the moment
+    /// a second engine exists: playing a local file left the media keys, the
+    /// Now Playing widget and Control Center talking to an idle streaming
+    /// engine, so the hardware controls did nothing and the system showed no
+    /// track at all.
+    private var engine: any Player { Playback.shared.active }
 
     func activate() {
         let commands = MPRemoteCommandCenter.shared()
