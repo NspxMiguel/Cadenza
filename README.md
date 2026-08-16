@@ -142,9 +142,9 @@ invoked by Cadenza; read them before running either.
 
 ## Legal
 
-- [Política de Privacidade](https://nspxmiguel.github.io/Cadenza/privacidade.html)
-- [Termos de Uso](https://nspxmiguel.github.io/Cadenza/termos.html)
-- [Licenças e créditos](https://nspxmiguel.github.io/Cadenza/licencas.html)
+- [Política de Privacidade](https://www.nspx.dev/Cadenza/privacidade.html)
+- [Termos de Uso](https://www.nspx.dev/Cadenza/termos.html)
+- [Licenças e créditos](https://www.nspx.dev/Cadenza/licencas.html)
 
 The same texts are shown inside the app under **Ajustes ▸ Sobre**, and are
 generated from `Sources/Cadenza/LegalText.swift` — the website cannot drift from
