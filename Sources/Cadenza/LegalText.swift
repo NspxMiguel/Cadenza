@@ -16,7 +16,7 @@ enum LegalText {
 
     ## O próprio Cadenza
 
-    Licença MIT. Copyright © 2026 Miguel Moretti. O texto completo está no arquivo \
+    Licença MIT. Copyright © 2026 NSPX (nspx.dev). O texto completo está no arquivo \
     `LICENSE` do repositório: [github.com/NspxMiguel/Cadenza](https://github.com/NspxMiguel/Cadenza).
 
     Em resumo: você pode usar, copiar, alterar e redistribuir, inclusive \
