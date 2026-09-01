@@ -182,3 +182,7 @@ that breakage stays cheap to repair. This is a personal-use client.
 
 Playlist cover art cannot be set: Apple's library API exposes no route for it,
 and every verb tried against the obvious one is refused.
+
+## Documentação
+
+Índice: [`docs/INDEX.md`](docs/INDEX.md)
