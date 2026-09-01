@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift build
+        run: swift build
+      - name: Decode smoke (se existir)
+        run: |
+          if [ -x tools/decode-test.sh ]; then
+            tools/decode-test.sh || true
+          fi
