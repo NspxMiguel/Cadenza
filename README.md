@@ -1,17 +1,31 @@
-<div align="center">
+<p align="center">
+  <img src="docs/img/cadenza-icon.png" alt="Cadenza" width="148">
+</p>
 
-<img src="docs/img/cadenza-icon.png" alt="Cadenza" width="148">
+<h1 align="center">Cadenza</h1>
 
-# Cadenza
+<p align="center">
+  <b>Apple Music Classical, native to macOS.</b><br>
+  A SwiftUI library on top of Apple's own WebKit player, built around work, movement, recording, composer and performer.
+</p>
 
-**Apple Music Classical, native to macOS.**
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/NspxMiguel/Cadenza?color=lightgrey"></a>
+  <a href="#install"><img alt="Platform: macOS 13+" src="https://img.shields.io/badge/platform-macOS%2013%2B-black?logo=apple"></a>
+  <a href="#how-it-works"><img alt="SwiftUI + WebKit" src="https://img.shields.io/badge/built_with-SwiftUI%20%2B%20WebKit-F05138?logo=swift&logoColor=white"></a>
+  <a href="https://github.com/NspxMiguel/Cadenza/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/NspxMiguel/Cadenza/ci.yml?branch=main&label=CI"></a>
+</p>
 
-[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-black?logo=apple)](#install)
-[![Swift](https://img.shields.io/badge/built_with-SwiftUI%20%2B%20WebKit-F05138?logo=swift&logoColor=white)](#how-it-works)
-[![Audio](https://img.shields.io/badge/audio-local%20files%20%2B%20Apple%20Music-7a1f2b)](#audio-quality)
-[![License](https://img.shields.io/github/license/NspxMiguel/Cadenza?color=lightgrey)](LICENSE)
-
-</div>
+<p align="center">
+  <a href="#why">Why</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#what-it-does">Features</a> ·
+  <a href="#setup">Setup</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#audio-quality">Audio quality</a> ·
+  <a href="#legal">Legal</a> ·
+  <a href="docs/INDEX.md">Docs</a>
+</p>
 
 ---
 
@@ -73,6 +87,9 @@ Everything after the first step is skippable and can be done later in
 
 ### Google Drive
 
+<details>
+<summary>Scope, sign-in model and Drive layout</summary>
+
 Cadenza signs in as an OAuth **public client**: there is no client secret in this
 repository, and there is no server in the middle. PKCE stands in for the secret and
 the answer comes back through the app's own URL scheme.
@@ -90,6 +107,8 @@ Drive/
 
 The manifest is written last, so an interrupted upload never leaves a catalogue
 promising files that are not there.
+
+</details>
 
 ## Install
 
@@ -138,6 +157,9 @@ states the ceiling in effect, so the app never implies a quality it cannot deliv
 
 ## Testing
 
+<details>
+<summary>Headless self-test and development tools</summary>
+
 Parts of this app have no interface to inspect — a wrong score renders as
 convincingly as a right one, and a tag that failed to parse looks like a tag that
 was never there. Those run headless:
@@ -154,6 +176,8 @@ against.
 of the app. The first creates and deletes real playlists and library entries in
 whichever account is signed in, and the second walks the private API. Neither is
 invoked by Cadenza; read them before running either.
+
+</details>
 
 ## Legal
 
@@ -183,6 +207,6 @@ that breakage stays cheap to repair. This is a personal-use client.
 Playlist cover art cannot be set: Apple's library API exposes no route for it,
 and every verb tried against the obvious one is refused.
 
-## Documentação
+## Documentation
 
-Índice: [`docs/INDEX.md`](docs/INDEX.md)
+Index: [`docs/INDEX.md`](docs/INDEX.md)
